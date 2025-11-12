@@ -2,7 +2,8 @@ import scheduleConfig from "@/data/mock-schedules.json";
 import type {
   CreateScheduleInput,
   DeviceSchedule,
-  ScheduleConfig
+  ScheduleConfig,
+  OwnerScheduleSnapshot
 } from "@/lib/domain/schedules";
 import type { SchedulePort } from "@/lib/ports/SchedulePort";
 
@@ -19,6 +20,20 @@ export class MockScheduleAdapter implements SchedulePort {
 
   loadConfig(): Promise<ScheduleConfig> {
     return Promise.resolve(clone(this.config));
+  }
+
+  loadOwnerSchedules(ownerKey: string): Promise<OwnerScheduleSnapshot> {
+    const ownerSchedules = this.config.schedules.filter(
+      (schedule) => schedule.scope === "owner" && schedule.ownerKey === ownerKey
+    );
+    const globalSchedules = this.config.schedules.filter(
+      (schedule) => schedule.scope === "global"
+    );
+    return Promise.resolve({
+      metadata: clone(this.config.metadata),
+      ownerSchedules: clone(ownerSchedules),
+      globalSchedules: clone(globalSchedules)
+    });
   }
 
   createSchedule(input: CreateScheduleInput): Promise<DeviceSchedule> {
@@ -47,5 +62,10 @@ export class MockScheduleAdapter implements SchedulePort {
 
     this.config.schedules.push(schedule);
     return Promise.resolve(clone(schedule));
+  }
+
+  deleteSchedule(scheduleId: string): Promise<void> {
+    this.config.schedules = this.config.schedules.filter((schedule) => schedule.id !== scheduleId);
+    return Promise.resolve();
   }
 }

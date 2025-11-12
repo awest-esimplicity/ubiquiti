@@ -1,4 +1,5 @@
 import { ApiLockControllerAdapter } from "@/lib/adapters/apiLockController";
+import { ApiScheduleAdapter } from "@/lib/adapters/apiSchedule";
 import { MockLockControllerAdapter } from "@/lib/adapters/mockLockController";
 import { MockScheduleAdapter } from "@/lib/adapters/mockSchedule";
 import { LockControllerService } from "@/lib/services/LockControllerService";
@@ -12,8 +13,9 @@ const lockAdapter = useMock
   ? new MockLockControllerAdapter()
   : new ApiLockControllerAdapter(apiBaseUrl);
 
-// Schedules currently use the mock adapter in both modes until API endpoints are available.
-const scheduleAdapter = new MockScheduleAdapter();
+const scheduleAdapter = useMock
+  ? new MockScheduleAdapter()
+  : new ApiScheduleAdapter(apiBaseUrl);
 
 export const lockControllerService = new LockControllerService(lockAdapter);
 export const scheduleService = new ScheduleService(scheduleAdapter);

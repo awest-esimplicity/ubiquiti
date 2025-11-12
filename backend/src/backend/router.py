@@ -5,7 +5,7 @@ from __future__ import annotations
 from datetime import UTC, datetime
 from typing import Annotated
 
-from fastapi import APIRouter, HTTPException, Query, status
+from fastapi import APIRouter, HTTPException, Query, Response, status
 
 from . import schemas
 from .owners import get_owner_repository
@@ -57,6 +57,12 @@ def _filter_device_records(
                 )
             ]
     return filtered
+
+
+def _require_owner(owner_key: str) -> None:
+    owner_repo = get_owner_repository()
+    if owner_repo.get(owner_key) is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Owner not found.")
 
 
 @router.get("/dashboard/summary", response_model=schemas.DashboardSummary)
@@ -262,4 +268,132 @@ def lock_unregistered_client(
 
     return schemas.DeviceActionResponse(
         results=[schemas.DeviceActionResult(**result) for result in results]
+    )
+
+
+# ---------------------------------------------------------------------------
+# Schedule endpoints
+
+
+@router.get(
+    "/schedules",
+    response_model=schemas.ScheduleListResponse,
+    tags=["schedules"],
+)
+def list_schedules(
+    scope: Annotated[str | None, Query()] = None,
+    owner: Annotated[str | None, Query()] = None,
+    enabled: Annotated[bool | None, Query()] = None,
+) -> schemas.ScheduleListResponse:
+    schedule_repo = get_schedule_repository()
+    metadata = schedule_repo.get_metadata()
+    schedules = schedule_repo.list(scope=scope, owner=owner, enabled=enabled)
+    return schemas.ScheduleListResponse(metadata=metadata, schedules=schedules)
+
+
+@router.post(
+    "/schedules",
+    response_model=schemas.DeviceSchedule,
+    status_code=status.HTTP_201_CREATED,
+    tags=["schedules"],
+)
+def create_schedule(payload: schemas.ScheduleCreateRequest) -> schemas.DeviceSchedule:
+    if payload.scope == "owner":
+        if not payload.owner_key:
+            raise HTTPException(
+                status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail="ownerKey is required when scope is 'owner'.",
+            )
+        _require_owner(payload.owner_key)
+    schedule_repo = get_schedule_repository()
+    return schedule_repo.create(payload)
+
+
+@router.get(
+    "/schedules/{schedule_id}",
+    response_model=schemas.DeviceSchedule,
+    tags=["schedules"],
+)
+def get_schedule(schedule_id: str) -> schemas.DeviceSchedule:
+    schedule_repo = get_schedule_repository()
+    schedule = schedule_repo.get(schedule_id)
+    if schedule is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Schedule not found.")
+    return schedule
+
+
+@router.patch(
+    "/schedules/{schedule_id}",
+    response_model=schemas.DeviceSchedule,
+    tags=["schedules"],
+)
+def update_schedule(
+    schedule_id: str, payload: schemas.ScheduleUpdateRequest
+) -> schemas.DeviceSchedule:
+    if not payload.model_dump(exclude_unset=True):
+        raise HTTPException(
+            status.HTTP_400_BAD_REQUEST, detail="No fields provided for update."
+        )
+    if payload.owner_key:
+        _require_owner(payload.owner_key)
+    schedule_repo = get_schedule_repository()
+    schedule = schedule_repo.update(schedule_id, payload)
+    if schedule is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Schedule not found.")
+    return schedule
+
+
+@router.delete(
+    "/schedules/{schedule_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+    tags=["schedules"],
+)
+def delete_schedule(schedule_id: str) -> Response:
+    schedule_repo = get_schedule_repository()
+    deleted = schedule_repo.delete(schedule_id)
+    if not deleted:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Schedule not found.")
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+@router.post(
+    "/schedules/{schedule_id}/enable",
+    response_model=schemas.DeviceSchedule,
+    tags=["schedules"],
+)
+def enable_schedule(schedule_id: str) -> schemas.DeviceSchedule:
+    schedule_repo = get_schedule_repository()
+    schedule = schedule_repo.set_enabled(schedule_id, True)
+    if schedule is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Schedule not found.")
+    return schedule
+
+
+@router.post(
+    "/schedules/{schedule_id}/disable",
+    response_model=schemas.DeviceSchedule,
+    tags=["schedules"],
+)
+def disable_schedule(schedule_id: str) -> schemas.DeviceSchedule:
+    schedule_repo = get_schedule_repository()
+    schedule = schedule_repo.set_enabled(schedule_id, False)
+    if schedule is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Schedule not found.")
+    return schedule
+
+
+@router.get(
+    "/owners/{owner_key}/schedules",
+    response_model=schemas.OwnerScheduleResponse,
+    tags=["schedules"],
+)
+def get_owner_schedules(owner_key: str) -> schemas.OwnerScheduleResponse:
+    _require_owner(owner_key)
+    schedule_repo = get_schedule_repository()
+    owner_schedules, global_schedules = schedule_repo.list_for_owner(owner_key)
+    metadata = schedule_repo.get_metadata()
+    return schemas.OwnerScheduleResponse(
+        metadata=metadata,
+        owner_schedules=owner_schedules,
+        global_schedules=global_schedules,
     )

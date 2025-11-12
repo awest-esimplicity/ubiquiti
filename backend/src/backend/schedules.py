@@ -274,14 +274,20 @@ class InMemoryScheduleRepository(ScheduleRepository):
 
     def sync_from_config(self, config: ScheduleConfig, *, replace: bool) -> None:
         if replace:
-            self._config = ScheduleConfig.model_validate(config.model_dump(by_alias=True))
+            self._config = ScheduleConfig.model_validate(
+                config.model_dump(by_alias=True)
+            )
         else:
             existing_ids = {schedule.id for schedule in self._config.schedules}
             for schedule in config.schedules:
                 if schedule.id in existing_ids:
                     continue
-                self._config.schedules.append(schedule)
-        self._config.metadata = config.metadata
+                self._config.schedules.append(
+                    DeviceSchedule.model_validate(schedule.model_dump(by_alias=True))
+                )
+        self._config.metadata = ScheduleMetadata.model_validate(
+            config.metadata.model_dump(by_alias=True)
+        )
 
 
 # SQLAlchemy repository -------------------------------------------------------

@@ -1,18 +1,12 @@
 import type {
   CreateScheduleInput,
   DeviceSchedule,
-  ScheduleConfig,
   ScheduleAction,
   ScheduleRecurrence,
-  ScheduleTarget
+  ScheduleTarget,
+  OwnerScheduleSnapshot
 } from "@/lib/domain/schedules";
 import type { SchedulePort } from "@/lib/ports/SchedulePort";
-
-export interface OwnerScheduleResult {
-  metadata: ScheduleConfig["metadata"];
-  ownerSchedules: DeviceSchedule[];
-  globalSchedules: DeviceSchedule[];
-}
 
 export interface CreateOwnerEventInput {
   label: string;
@@ -28,20 +22,8 @@ export interface CreateOwnerEventInput {
 export class ScheduleService {
   constructor(private readonly port: SchedulePort) {}
 
-  async getSchedulesForOwner(ownerKey: string): Promise<OwnerScheduleResult> {
-    const config = await this.port.loadConfig();
-    const ownerSchedules = config.schedules.filter(
-      (schedule) => schedule.scope === "owner" && schedule.ownerKey === ownerKey
-    );
-    const globalSchedules = config.schedules.filter(
-      (schedule) => schedule.scope === "global"
-    );
-
-    return {
-      metadata: config.metadata,
-      ownerSchedules,
-      globalSchedules
-    };
+  async getSchedulesForOwner(ownerKey: string): Promise<OwnerScheduleSnapshot> {
+    return this.port.loadOwnerSchedules(ownerKey);
   }
 
   async createEventForOwner(
@@ -74,5 +56,9 @@ export class ScheduleService {
     };
 
     return this.port.createSchedule(payload);
+  }
+
+  async deleteSchedule(scheduleId: string): Promise<void> {
+    await this.port.deleteSchedule(scheduleId);
   }
 }

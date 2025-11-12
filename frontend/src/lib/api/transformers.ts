@@ -1,10 +1,18 @@
 import type {
+  ApiDeviceSchedule,
   ApiOwnerSummary,
+  ApiScheduleMetadata,
+  ApiScheduleTarget,
   DashboardSummary,
   DeviceStatus,
   UnregisteredClient
 } from "@/lib/api/types";
 import type { DashboardMetadata, Device, OwnerSummary, UnregisteredDevice } from "@/lib/domain/models";
+import type {
+  DeviceSchedule,
+  ScheduleMetadata,
+  ScheduleTarget
+} from "@/lib/domain/schedules";
 
 function toDeviceType(value: string): Device["type"] {
   const normalized = value.toLowerCase();
@@ -64,5 +72,60 @@ export function mapUnregistered(client: UnregisteredClient): UnregisteredDevice 
     vendor: client.vendor ?? undefined,
     lastSeen: client.last_seen ?? undefined,
     locked: client.locked
+  };
+}
+
+export function mapScheduleMetadata(metadata: ApiScheduleMetadata): ScheduleMetadata {
+  return {
+    timezone: metadata.timezone,
+    generatedAt: metadata.generatedAt
+  };
+}
+
+export function mapScheduleTarget(target: ScheduleTarget): ApiScheduleTarget {
+  return {
+    devices: target.devices ?? [],
+    tags: target.tags ?? []
+  };
+}
+
+export function mapSchedule(schedule: ApiDeviceSchedule): DeviceSchedule {
+  return {
+    id: schedule.id,
+    scope: schedule.scope,
+    ownerKey: schedule.ownerKey ?? undefined,
+    label: schedule.label,
+    description: schedule.description ?? undefined,
+    targets: {
+      devices: schedule.targets?.devices ?? [],
+      tags: schedule.targets?.tags ?? []
+    },
+    action: schedule.action,
+    endAction: schedule.endAction ?? undefined,
+    window: {
+      start: schedule.window.start,
+      end: schedule.window.end
+    },
+    recurrence: {
+      type: schedule.recurrence.type,
+      interval: schedule.recurrence.interval ?? 1,
+      daysOfWeek: schedule.recurrence.daysOfWeek ?? undefined,
+      dayOfMonth: schedule.recurrence.dayOfMonth ?? undefined,
+      until: schedule.recurrence.until ?? undefined
+    },
+    exceptions: (schedule.exceptions ?? []).map((exception) => ({
+      date: exception.date,
+      reason: exception.reason ?? undefined,
+      skip: exception.skip ?? undefined,
+      overrideWindow: exception.overrideWindow
+        ? {
+            start: exception.overrideWindow.start,
+            end: exception.overrideWindow.end
+          }
+        : undefined
+    })),
+    enabled: schedule.enabled,
+    createdAt: schedule.createdAt,
+    updatedAt: schedule.updatedAt
   };
 }

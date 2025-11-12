@@ -68,3 +68,75 @@ export interface SingleClientLockRequest extends DeviceTarget {
 export interface VerifyPinResponse {
   valid: boolean;
 }
+
+export interface ApiScheduleWindow {
+  start: string;
+  end: string;
+}
+
+export interface ApiScheduleRecurrence {
+  type: "one_shot" | "daily" | "weekly" | "monthly";
+  interval?: number;
+  daysOfWeek?: string[] | null;
+  dayOfMonth?: number | null;
+  until?: string | null;
+}
+
+export interface ApiScheduleException {
+  date: string;
+  reason?: string | null;
+  skip?: boolean | null;
+  overrideWindow?: ApiScheduleWindow | null;
+}
+
+export interface ApiScheduleTarget {
+  devices?: string[];
+  tags?: string[];
+}
+
+export interface ApiDeviceSchedule {
+  id: string;
+  scope: "owner" | "global";
+  ownerKey?: string | null;
+  label: string;
+  description?: string | null;
+  targets: ApiScheduleTarget;
+  action: "lock" | "unlock";
+  endAction?: "lock" | "unlock" | null;
+  window: ApiScheduleWindow;
+  recurrence: ApiScheduleRecurrence;
+  exceptions?: ApiScheduleException[];
+  enabled: boolean;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface ApiScheduleMetadata {
+  timezone: string;
+  generatedAt: string;
+}
+
+export interface ApiScheduleListResponse {
+  metadata: ApiScheduleMetadata;
+  schedules: ApiDeviceSchedule[];
+}
+
+export interface ApiOwnerScheduleResponse {
+  metadata: ApiScheduleMetadata;
+  ownerSchedules: ApiDeviceSchedule[];
+  globalSchedules: ApiDeviceSchedule[];
+}
+
+export interface ApiScheduleCreateRequest {
+  scope: "owner" | "global";
+  ownerKey?: string | null;
+  label: string;
+  description?: string | null;
+  targets: ApiScheduleTarget;
+  action: "lock" | "unlock";
+  endAction?: "lock" | "unlock" | null;
+  window: ApiScheduleWindow;
+  recurrence: ApiScheduleRecurrence;
+  exceptions?: ApiScheduleException[];
+  enabled?: boolean;
+}

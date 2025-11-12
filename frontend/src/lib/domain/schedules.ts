@@ -67,3 +67,9 @@ export interface CreateScheduleInput {
   exceptions?: ScheduleException[];
   enabled?: boolean;
 }
+
+export interface OwnerScheduleSnapshot {
+  metadata: ScheduleMetadata;
+  ownerSchedules: DeviceSchedule[];
+  globalSchedules: DeviceSchedule[];
+}

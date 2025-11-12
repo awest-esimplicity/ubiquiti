@@ -1,4 +1,8 @@
 import type {
+  ApiDeviceSchedule,
+  ApiOwnerScheduleResponse,
+  ApiScheduleCreateRequest,
+  ApiScheduleListResponse,
   DashboardSummary,
   DeviceActionRequest,
   DeviceListResponse,
@@ -10,7 +14,7 @@ import type {
   VerifyPinResponse
 } from "@/lib/api/types";
 
-type HttpMethod = "GET" | "POST";
+type HttpMethod = "GET" | "POST" | "DELETE";
 
 const env = import.meta.env as Record<string, string | undefined>;
 const DEFAULT_BASE_URL = env.PUBLIC_API_BASE_URL ?? "http://127.0.0.1:8000";
@@ -112,5 +116,26 @@ export class UnifiApiClient {
       }
     );
     return response.valid;
+  }
+
+  async listSchedules(signal?: AbortSignal): Promise<ApiScheduleListResponse> {
+    return this.request<ApiScheduleListResponse>("/api/schedules", { signal });
+  }
+
+  async getOwnerSchedules(ownerKey: string, signal?: AbortSignal): Promise<ApiOwnerScheduleResponse> {
+    return this.request<ApiOwnerScheduleResponse>(`/api/owners/${ownerKey}/schedules`, { signal });
+  }
+
+  async createSchedule(payload: ApiScheduleCreateRequest): Promise<ApiDeviceSchedule> {
+    return this.request<ApiDeviceSchedule, ApiScheduleCreateRequest>("/api/schedules", {
+      method: "POST",
+      body: payload
+    });
+  }
+
+  async deleteSchedule(scheduleId: string): Promise<void> {
+    await this.request(`/api/schedules/${scheduleId}`, {
+      method: "DELETE"
+    });
   }
 }

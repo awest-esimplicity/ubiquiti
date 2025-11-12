@@ -124,7 +124,7 @@ class ScheduleWindow(CamelModel):
 
 class ScheduleRecurrence(CamelModel):
     type: Literal["one_shot", "daily", "weekly", "monthly"]
-    interval: int | None = Field(default=None)
+    interval: int = Field(default=1)
     days_of_week: list[str] | None = Field(default=None, alias="daysOfWeek")
     day_of_month: int | None = Field(default=None, alias="dayOfMonth")
     until: datetime | None = None
