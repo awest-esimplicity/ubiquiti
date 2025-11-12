@@ -1,0 +1,10 @@
+---
+import MainLayout from "@/layouts/MainLayout.astro";
+import { HomeDashboard } from "@/components/dashboard/HomeDashboard";
+---
+
+<MainLayout title="UniFi Device Lock Controller">
+  <section class="mx-auto w-full max-w-[1200px] px-6 py-12">
+    <HomeDashboard client:only="react" />
+  </section>
+</MainLayout>

@@ -1,0 +1,73 @@
+[project]
+name = "ubiquiti"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+authors = [
+    { name = "Aaron West", email = "aaron.west@esimplicity.com" }
+]
+requires-python = ">=3.13"
+dependencies = [
+    "loguru>=0.7.3",
+    "mac-vendor-lookup>=0.1.13",
+    "requests>=2.32.5",
+    "streamlit>=1.51.0",
+    "fastapi>=0.114.0",
+    "uvicorn[standard]>=0.30.0",
+    "pydantic>=2.9.0",
+    "sqlalchemy>=2.0.36",
+]
+
+[project.scripts]
+ubiquiti = "backend.ubiquiti:main"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[dependency-groups]
+dev = [
+    "black>=25.9.0",
+    "pylance>=0.39.0",
+    "pytest>=9.0.0",
+    "ruff>=0.14.4",
+    "mypy>=1.11.0",
+]
+
+[tool.hatch.build]
+dev-mode-dirs = ["src"]
+
+[tool.hatch.build.targets.wheel]
+packages = ["backend"]
+
+[tool.hatch.build.targets.sdist]
+include = ["src", "README.md"]
+
+[tool.uv.sources]
+backend = { path = "src/backend" }
+
+[tool.black]
+line-length = 88
+target-version = ["py313"]
+
+[tool.ruff]
+line-length = 88
+target-version = "py313"
+
+[tool.ruff.lint]
+select = [
+    "E",
+    "F",
+    "B",
+    "UP",
+    "I",
+]
+
+[tool.ruff.format]
+quote-style = "double"
+indent-style = "space"
+
+[tool.mypy]
+python_version = "3.13"
+packages = ["backend"]
+ignore_missing_imports = true

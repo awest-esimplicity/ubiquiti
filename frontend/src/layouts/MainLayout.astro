@@ -1,0 +1,19 @@
+---
+import "../styles/global.css";
+const { title = "UniFi Device Lock Controller", description = "Network access control dashboard" } = Astro.props;
+---
+
+<!DOCTYPE html>
+<html lang="en" class="dark h-full">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>{title}</title>
+    <meta name="description" content={description} />
+  </head>
+  <body class="min-h-full text-slate-100 antialiased">
+    <main class="min-h-screen">
+      <slot />
+    </main>
+  </body>
+</html>

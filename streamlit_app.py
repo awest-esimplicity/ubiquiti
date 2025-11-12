@@ -3,19 +3,22 @@
 from __future__ import annotations
 
 import contextlib
+import html
 from collections.abc import Iterable
 from datetime import UTC, datetime
 from textwrap import dedent
+from urllib.parse import quote_plus
 
 import streamlit as st
 
-from ubiquiti.config import settings
-from ubiquiti.devices import DEVICES, Device, device_by_mac
-from ubiquiti.firewall import FirewallManager
-from ubiquiti.lock import DeviceLocker
-from ubiquiti.network import NetworkDeviceService
-from ubiquiti.unifi import UniFiAPIError, UniFiClient
-from ubiquiti.utils import (
+from backend.owners import get_owner_repository
+from backend.ubiquiti.config import settings
+from backend.ubiquiti.devices import Device, get_device_repository
+from backend.ubiquiti.firewall import FirewallManager
+from backend.ubiquiti.lock import DeviceLocker
+from backend.ubiquiti.network import NetworkDeviceService
+from backend.ubiquiti.unifi import UniFiAPIError, UniFiClient
+from backend.ubiquiti.utils import (
     configure_logging,
     logger,
     lookup_mac_vendor,
@@ -24,12 +27,51 @@ from ubiquiti.utils import (
 
 configure_logging()
 
+VIEW_HOME = "home"
+VIEW_CONSOLE = "console"
+VIEW_OWNER = "owner-detail"
+
 REFRESH_INTERVAL_OPTIONS: dict[str, int] = {
     "10s": 10,
     "1m": 60,
     "5m": 300,
     "10m": 600,
 }
+
+ICON_DEVICE_SUMMARY = """
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
+  <rect x="2" y="3" width="20" height="14" rx="2" ry="2"></rect>
+  <line x1="8" y1="21" x2="16" y2="21"></line>
+  <line x1="12" y1="17" x2="12" y2="21"></line>
+</svg>
+""".strip()
+
+ICON_LOCKED = """
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
+  <rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect>
+  <path d="M7 11V7a5 5 0 0 1 10 0v4"></path>
+</svg>
+""".strip()
+
+ICON_UNLOCKED = """
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
+  <rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect>
+  <path d="M7 11V7a5 5 0 0 1 9.9-1"></path>
+</svg>
+""".strip()
+
+
+def navigate_to(view: str, *, owner: str | None = None) -> None:
+    """Update session navigation state and rely on query params to refresh."""
+    st.session_state["ui_view"] = view
+    st.session_state["selected_owner"] = owner
+    st.query_params["view"] = view
+    if owner:
+        st.query_params["owner"] = owner
+    elif "owner" in st.query_params:
+        del st.query_params["owner"]
+    if "auth_owner" in st.query_params:
+        del st.query_params["auth_owner"]
 
 
 def apply_global_styles() -> None:
@@ -188,6 +230,357 @@ def apply_global_styles() -> None:
                 backdrop-filter: blur(12px);
             }
 
+            .home-owner-card-grid {
+                display: grid;
+                grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+                gap: 22px;
+                margin: 8px 0 36px;
+            }
+
+            .home-owner-card-wrapper {
+                position: relative;
+                border-radius: 20px;
+            }
+
+            .home-owner-card-link {
+                display: block;
+                text-decoration: none;
+                color: inherit;
+                border-radius: 20px;
+                cursor: pointer;
+            }
+
+            .home-owner-card {
+                position: relative;
+                background: linear-gradient(145deg, rgba(20, 30, 53, 0.95), rgba(11, 16, 32, 0.92));
+                border-radius: 20px;
+                border: 1px solid rgba(100, 116, 139, 0.28);
+                padding: 22px 24px;
+                box-shadow: 0 18px 32px rgba(15, 23, 42, 0.45);
+                display: flex;
+                flex-direction: column;
+                gap: 18px;
+                transition: transform 0.25s ease, box-shadow 0.25s ease, border-color 0.25s ease;
+                overflow: hidden;
+            }
+
+            .home-owner-card::after {
+                content: "";
+                position: absolute;
+                inset: 0;
+                border-radius: inherit;
+                pointer-events: none;
+                border: 1px solid transparent;
+                transition: border-color 0.25s ease, box-shadow 0.25s ease;
+            }
+
+            .home-owner-card-link:hover .home-owner-card,
+            .home-owner-card-link:focus-visible .home-owner-card {
+                transform: translateY(-6px);
+                border-color: rgba(59, 130, 246, 0.45);
+                box-shadow: 0 24px 45px rgba(37, 99, 235, 0.35);
+            }
+
+            .home-owner-card-link:hover .home-owner-card::after,
+            .home-owner-card-link:focus-visible .home-owner-card::after {
+                border-color: rgba(59, 130, 246, 0.45);
+                box-shadow: 0 0 24px rgba(56, 189, 248, 0.25);
+            }
+
+            .home-owner-card-link:focus-visible {
+                outline: none;
+            }
+
+            .owner-card__header {
+                display: flex;
+                justify-content: space-between;
+                align-items: center;
+                gap: 12px;
+            }
+
+            .owner-card__title {
+                margin: 0;
+                font-size: 1.28rem;
+                font-weight: 600;
+                letter-spacing: -0.01em;
+                color: var(--color-text-primary);
+            }
+
+            .owner-card__chips {
+                padding: 4px 10px;
+                border-radius: 999px;
+                background: rgba(59, 130, 246, 0.18);
+                border: 1px solid rgba(96, 165, 250, 0.35);
+                font-size: 0.68rem;
+                text-transform: uppercase;
+                letter-spacing: 0.1em;
+                color: rgba(191, 219, 254, 0.85);
+            }
+
+            .owner-card__metrics {
+                display: flex;
+                flex-direction: column;
+                gap: 14px;
+            }
+
+            .owner-card__stat {
+                display: flex;
+                align-items: center;
+                gap: 12px;
+            }
+
+            .owner-card__stat-icon {
+                display: inline-flex;
+                align-items: center;
+                justify-content: center;
+                width: 34px;
+                height: 34px;
+                border-radius: 12px;
+                background: rgba(59, 130, 246, 0.2);
+                color: rgba(191, 219, 254, 0.95);
+            }
+
+            .owner-card__stat-icon svg {
+                width: 18px;
+                height: 18px;
+            }
+
+            .owner-card__stat-text {
+                display: flex;
+                flex-direction: column;
+                gap: 2px;
+            }
+
+            .owner-card__stat-label {
+                font-size: 0.78rem;
+                text-transform: uppercase;
+                letter-spacing: 0.1em;
+                color: rgba(148, 163, 184, 0.75);
+            }
+
+            .owner-card__stat-value {
+                font-size: 1.35rem;
+                font-weight: 600;
+                color: var(--color-text-primary);
+            }
+
+            .owner-card__status {
+                display: flex;
+                justify-content: space-between;
+                align-items: center;
+                gap: 12px;
+            }
+
+            .status-indicator {
+                display: inline-flex;
+                align-items: center;
+                gap: 8px;
+                font-size: 0.92rem;
+                font-weight: 500;
+            }
+
+            .status-indicator svg {
+                width: 16px;
+                height: 16px;
+            }
+
+            .status-indicator--locked {
+                color: #f87171;
+            }
+
+            .status-indicator--unlocked {
+                color: #34d399;
+            }
+
+            .owner-card__progress {
+                position: relative;
+                height: 8px;
+                border-radius: 999px;
+                background: rgba(148, 163, 184, 0.2);
+                overflow: hidden;
+            }
+
+            .owner-card__progress-fill {
+                position: absolute;
+                inset: 0;
+                width: 0%;
+                background: linear-gradient(90deg, #f87171, #ef4444);
+                border-radius: inherit;
+                transition: width 0.3s ease;
+            }
+
+            .owner-card__ratio {
+                font-size: 0.8rem;
+                color: rgba(148, 163, 184, 0.75);
+            }
+
+            .pin-modal-backdrop {
+                position: fixed;
+                inset: 0;
+                background: rgba(15, 23, 42, 0.6);
+                backdrop-filter: blur(6px);
+                z-index: 1300;
+            }
+
+            .pin-modal-container {
+                position: fixed;
+                top: 0;
+                left: 0;
+                right: 0;
+                bottom: 0;
+                display: flex;
+                justify-content: center;
+                align-items: center;
+                z-index: 1310;
+                pointer-events: none;
+            }
+
+            .pin-modal-card {
+                width: min(340px, 92vw);
+                background: linear-gradient(175deg, rgba(21, 31, 57, 0.98), rgba(12, 18, 34, 0.94));
+                border-radius: 20px;
+                border: 1px solid rgba(96, 165, 250, 0.35);
+                box-shadow: 0 32px 60px rgba(15, 23, 42, 0.65);
+                padding: 26px 28px;
+                pointer-events: all;
+            }
+
+            .pin-modal-title {
+                font-size: 1.22rem;
+                font-weight: 600;
+                letter-spacing: -0.01em;
+                color: var(--color-text-primary);
+                margin: 0 0 10px;
+            }
+
+            .pin-modal-description {
+                font-size: 0.9rem;
+                color: var(--color-text-secondary);
+                margin-bottom: 18px;
+            }
+
+            .pin-modal-card [data-testid="stTextInput"] input {
+                background: rgba(15, 23, 42, 0.75);
+                border-radius: 12px;
+                border: 1px solid rgba(148, 163, 184, 0.4);
+                color: var(--color-text-primary);
+                text-align: center;
+                font-size: 1.3rem;
+                letter-spacing: 0.35em;
+                font-weight: 600;
+            }
+
+            .pin-modal-card [data-testid="stTextInput"] label {
+                display: none;
+            }
+
+            .pin-keypad {
+                margin: 18px 0 12px;
+            }
+
+            .pin-keypad .stButton {
+                width: 100%;
+            }
+
+            .pin-keypad .stButton > button {
+                width: 100% !important;
+                height: 52px !important;
+                border-radius: 14px !important;
+                background: rgba(30, 41, 59, 0.9);
+                border: 1px solid rgba(148, 163, 184, 0.35);
+                color: var(--color-text-primary);
+                font-size: 1.1rem;
+                font-weight: 600;
+                transition: all 0.2s ease;
+            }
+
+            .pin-keypad .stButton > button:hover {
+                border-color: rgba(96, 165, 250, 0.6) !important;
+                background: rgba(30, 41, 59, 0.95) !important;
+                box-shadow: 0 0 18px rgba(56, 189, 248, 0.2);
+            }
+
+            .pin-modal-actions {
+                display: flex;
+                gap: 12px;
+                margin-top: 10px;
+            }
+
+            .pin-modal-actions .stButton {
+                flex: 1;
+            }
+
+            .pin-modal-actions .stButton > button {
+                width: 100% !important;
+                height: 46px !important;
+                border-radius: 12px !important;
+                border: 1px solid rgba(148, 163, 184, 0.4);
+                background: rgba(30, 41, 59, 0.85);
+                color: var(--color-text-primary);
+                font-weight: 600;
+                transition: all 0.2s ease;
+            }
+
+            .pin-modal-actions .stButton > button:hover {
+                border-color: rgba(96, 165, 250, 0.6) !important;
+                background: rgba(30, 41, 59, 0.95) !important;
+            }
+
+            .home-heading {
+                font-size: 1.4rem;
+                font-weight: 600;
+                letter-spacing: -0.02em;
+                color: var(--color-text-primary);
+            }
+
+            .home-refresh {
+                display: flex;
+                justify-content: flex-end;
+                align-items: center;
+                height: 100%;
+            }
+
+            .home-refresh .stButton > button {
+                width: 40px !important;
+                height: 40px !important;
+                border-radius: 12px !important;
+                padding: 0 !important;
+                background: rgba(30, 41, 59, 0.85);
+                border: 1px solid rgba(148, 163, 184, 0.35);
+                position: relative;
+                color: transparent;
+                font-size: 0;
+            }
+
+            .home-refresh .stButton > button::before {
+                content: "";
+                position: absolute;
+                inset: 0;
+                margin: auto;
+                width: 18px;
+                height: 18px;
+                -webkit-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23ffffff' stroke-width='1.75' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='23 4 23 10 17 10'%3E%3C/polyline%3E%3Cpolyline points='1 20 1 14 7 14'%3E%3C/polyline%3E%3Cpath d='M3.51 9a9 9 0 0 1 14.13-3.36L23 10'%3E%3C/path%3E%3Cpath d='M20.49 15a9 9 0 0 1-14.13 3.36L1 14'%3E%3C/path%3E%3C/svg%3E") center / contain no-repeat;
+                mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23ffffff' stroke-width='1.75' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='23 4 23 10 17 10'%3E%3C/polyline%3E%3Cpolyline points='1 20 1 14 7 14'%3E%3C/polyline%3E%3Cpath d='M3.51 9a9 9 0 0 1 14.13-3.36L23 10'%3E%3C/path%3E%3Cpath d='M20.49 15a9 9 0 0 1-14.13 3.36L1 14'%3E%3C/path%3E%3C/svg%3E") center / contain no-repeat;
+                background: linear-gradient(135deg, #60a5fa, #38bdf8);
+            }
+
+            .home-refresh .stButton > button:hover {
+                border-color: rgba(96, 165, 250, 0.65) !important;
+                background: rgba(30, 41, 59, 0.95) !important;
+                box-shadow: 0 0 18px rgba(56, 189, 248, 0.25);
+            }
+
+            .home-refresh .stButton > button:focus-visible {
+                outline: 2px solid rgba(56, 189, 248, 0.6);
+                outline-offset: 2px;
+            }
+
+            .home-last-sync {
+                color: var(--color-muted);
+                margin-top: 12px;
+                font-size: 0.9rem;
+            }
+
             .owner-section__header {
                 display: flex;
                 justify-content: space-between;
@@ -204,6 +597,18 @@ def apply_global_styles() -> None:
             .owner-section__meta {
                 font-size: 0.85rem;
                 color: var(--color-muted);
+            }
+
+            .owner-section__actions {
+                display: flex;
+                justify-content: flex-end;
+                align-items: center;
+                height: 100%;
+            }
+
+            .owner-section__actions .stButton > button {
+                padding: 6px 14px !important;
+                font-size: 0.88rem;
             }
 
             .owner-divider {
@@ -536,11 +941,12 @@ def locker_context() -> Iterable[tuple[FirewallManager, DeviceLocker]]:
 
 
 def load_device_status() -> list[dict[str, object]]:
+    device_repo = get_device_repository()
     with locker_context() as (firewall, locker):
         suppress_insecure_request_warning(firewall.client.verify_ssl)
         rules = firewall.list_rules()
         rows: list[dict[str, object]] = []
-        for device in DEVICES:
+        for device in device_repo.list_all():
             locked = locker.is_device_locked(device, rules)
             vendor = lookup_mac_vendor(device.mac)
             rows.append(
@@ -678,19 +1084,43 @@ def render_owner_table(
     owner_label = owner.title() if owner else "Unknown owner"
     device_count = len(rows_with_devices)
     subtitle = f"{device_count} device{'s' if device_count != 1 else ''}"
+    if owner:
+        owner_key = "".join(ch.lower() if ch.isalnum() else "-" for ch in owner) or "owner"
+    else:
+        owner_key = "unknown-owner"
+    devices_to_lock = [device for row, device in rows_with_devices if not row["locked"]]
+    all_locked = not devices_to_lock
     card = st.container()
     with card:
-        st.markdown(
-            f"""
-            <div class="owner-section">
-                <div class="owner-section__header">
-                    <div class="owner-section__title">{owner_label}</div>
-                    <div class="owner-section__meta">{subtitle}</div>
-                </div>
-                <hr class="owner-divider"/>
-            """,
-            unsafe_allow_html=True,
-        )
+        st.markdown('<div class="owner-section">', unsafe_allow_html=True)
+        st.markdown('<div class="owner-section__header">', unsafe_allow_html=True)
+        title_col, meta_col, action_col = st.columns([5, 3, 2], gap="small")
+        with title_col:
+            st.markdown(
+                f"<div class='owner-section__title'>{owner_label}</div>",
+                unsafe_allow_html=True,
+            )
+        with meta_col:
+            st.markdown(
+                f"<div class='owner-section__meta'>{subtitle}</div>",
+                unsafe_allow_html=True,
+            )
+        with action_col:
+            st.markdown(
+                "<div class='owner-section__actions'>", unsafe_allow_html=True
+            )
+            if st.button(
+                "🔒 Lock all",
+                key=f"owner-lock-{owner_key}",
+                use_container_width=True,
+                disabled=all_locked,
+                type="primary",
+                help=f"Lock every device assigned to {owner_label}",
+            ):
+                lock_devices(devices_to_lock, unlock=False)
+            st.markdown("</div>", unsafe_allow_html=True)
+        st.markdown("</div>", unsafe_allow_html=True)
+        st.markdown('<hr class="owner-divider"/>', unsafe_allow_html=True)
         column_sizes = [6, 2, 1]
         headers = ["Device", "Status", "Action"]
         header_cols = st.columns(column_sizes)
@@ -800,7 +1230,262 @@ def render_unregistered_cards(
                     lock_devices([device], unlock=locked)
 
 
+def render_home_view(rows_all: list[dict[str, object]]) -> None:
+    total_devices = len(rows_all)
+    locked_total = sum(1 for row in rows_all if row["locked"])
+    unlocked_total = total_devices - locked_total
+    unknown_total = sum(1 for row in rows_all if not row["vendor"])
+    refreshed_at = st.session_state["last_refreshed"].strftime("%d/%m/%Y • %I:%M:%S%p")
+
+    summary_stats = [
+        ("Registered devices", str(total_devices), "Across all tracked owners"),
+        ("Locked devices", str(locked_total), "Currently blocked from the network"),
+        ("Unlocked devices", str(unlocked_total), "Free to access the network"),
+        ("Unknown vendors", str(unknown_total), "Missing vendor metadata"),
+    ]
+
+    owners_map: dict[str, list[dict[str, object]]] = {}
+    for row in rows_all:
+        owners_map.setdefault(row["owner"], []).append(row)
+
+    if not owners_map:
+        st.info("No registered owners found.")
+        return
+
+    owner_repo = get_owner_repository()
+    owner_summaries: list[dict[str, object]] = []
+    for owner in sorted(owners_map):
+        owner_rows = owners_map[owner]
+        owner_entry = owner_repo.get(owner)
+        owner_label = (
+            owner_entry.display_name
+            if owner_entry is not None
+            else (owner.title() if owner else "Unknown owner")
+        )
+        owner_locked = sum(1 for row in owner_rows if row["locked"])
+        owner_unlocked = len(owner_rows) - owner_locked
+        owner_key = (
+            "".join(ch.lower() if ch.isalnum() else "-" for ch in owner)
+            if owner
+            else "unknown-owner"
+        )
+        owner_value = owner or ""
+        owner_summaries.append(
+            {
+                "owner_value": owner_value,
+                "label": owner_label,
+                "devices": len(owner_rows),
+                "locked": owner_locked,
+                "unlocked": owner_unlocked,
+                "key": owner_key or "owner",
+            }
+        )
+
+    max_cards = 4
+    subset = owner_summaries[:max_cards]
+
+    heading_col, _, refresh_col = st.columns([6, 3, 1], gap="small")
+    with heading_col:
+        st.markdown("<div class='home-heading'>Owners</div>", unsafe_allow_html=True)
+    with refresh_col:
+        st.markdown("<div class='home-refresh'>", unsafe_allow_html=True)
+        if st.button("", key="home-refresh", help="Refresh owners overview"):
+            refresh_dashboard()
+        st.markdown("</div>", unsafe_allow_html=True)
+
+    if subset:
+        st.markdown("<div class='home-owner-card-grid'>", unsafe_allow_html=True)
+        for summary in subset:
+            owner_label_html = html.escape(summary["label"])
+            owner_value = summary["owner_value"]
+            devices_total = summary["devices"]
+            locked_count = summary["locked"]
+            unlocked_count = summary["unlocked"]
+            locked_ratio = (locked_count / devices_total * 100) if devices_total else 0.0
+            locked_ratio_display = f"{locked_ratio:.0f}% locked"
+            href = f"?view={quote_plus(VIEW_HOME)}&auth_owner={quote_plus(owner_value)}"
+            markup = dedent(
+                f"""
+                <div class="home-owner-card-wrapper">
+                    <a class="home-owner-card-link" href="{href}" aria-label="View {owner_label_html} devices">
+                        <article class="home-owner-card">
+                            <header class="owner-card__header">
+                                <h3 class="owner-card__title">{owner_label_html}</h3>
+                                <span class="owner-card__chips">Owner overview</span>
+                            </header>
+                            <div class="owner-card__metrics">
+                                <div class="owner-card__stat">
+                                    <span class="owner-card__stat-icon">{ICON_DEVICE_SUMMARY}</span>
+                                    <span class="owner-card__stat-text">
+                                        <span class="owner-card__stat-label">Total devices</span>
+                                        <span class="owner-card__stat-value">{devices_total}</span>
+                                    </span>
+                                </div>
+                                <div class="owner-card__status">
+                                    <span class="status-indicator status-indicator--locked">
+                                        {ICON_LOCKED}
+                                        <span>{locked_count} locked</span>
+                                    </span>
+                                    <span class="status-indicator status-indicator--unlocked">
+                                        {ICON_UNLOCKED}
+                                        <span>{unlocked_count} unlocked</span>
+                                    </span>
+                                </div>
+                                <div class="owner-card__progress" role="presentation" aria-hidden="true">
+                                    <div class="owner-card__progress-fill" style="width: {locked_ratio:.0f}%"></div>
+                                </div>
+                                <p class="owner-card__ratio">{locked_ratio_display}</p>
+                            </div>
+                        </article>
+                    </a>
+                </div>
+                """
+            ).strip()
+            st.markdown(markup, unsafe_allow_html=True)
+        st.markdown("</div>", unsafe_allow_html=True)
+
+    pin_owner_key = st.session_state.get("pin_modal_owner")
+    if st.session_state.get("pin_modal_open") and pin_owner_key:
+        owner_entry = owner_repo.get(pin_owner_key)
+        owner_label = (
+            owner_entry.display_name
+            if owner_entry is not None
+            else st.session_state.get("pin_modal_label", pin_owner_key.title())
+        )
+        st.markdown("<div class='pin-modal-backdrop'></div>", unsafe_allow_html=True)
+        with st.container():
+            st.markdown(
+                "<div class='pin-modal-container'><div class='pin-modal-card'>",
+                unsafe_allow_html=True,
+            )
+            st.markdown(
+                f"<div class='pin-modal-title'>Unlock {owner_label}</div>",
+                unsafe_allow_html=True,
+            )
+            st.markdown(
+                "<div class='pin-modal-description'>Enter the 4-digit PIN to continue.</div>",
+                unsafe_allow_html=True,
+            )
+            st.text_input(
+                "PIN",
+                key="pin-modal-input",
+                max_chars=4,
+                type="password",
+                help="PINs contain only digits and are 4 characters long.",
+            )
+            pin_value = st.session_state.get("pin-modal-input", "")
+            if st.session_state.get("pin_modal_error"):
+                st.error(st.session_state["pin_modal_error"])
+
+            st.markdown("<div class='pin-keypad'>", unsafe_allow_html=True)
+            keypad_rows = [("1", "2", "3"), ("4", "5", "6"), ("7", "8", "9")]
+            for row_digits in keypad_rows:
+                row_cols = st.columns(3)
+                for digit_col, digit in zip(row_cols, row_digits):
+                    with digit_col:
+                        if st.button(digit, key=f"pin-digit-{digit}"):
+                            current_value = st.session_state.get("pin-modal-input", "")
+                            if len(current_value) < 4:
+                                st.session_state["pin-modal-input"] = (
+                                    current_value + digit
+                                )
+                            st.rerun()
+            keypad_bottom = st.columns(3)
+            with keypad_bottom[0]:
+                if st.button("Clear", key="pin-clear"):
+                    st.session_state["pin-modal-input"] = ""
+                    st.rerun()
+            with keypad_bottom[1]:
+                if st.button("0", key="pin-digit-0"):
+                    current_value = st.session_state.get("pin-modal-input", "")
+                    if len(current_value) < 4:
+                        st.session_state["pin-modal-input"] = current_value + "0"
+                    st.rerun()
+            with keypad_bottom[2]:
+                if st.button("⌫", key="pin-backspace"):
+                    current_value = st.session_state.get("pin-modal-input", "")
+                    st.session_state["pin-modal-input"] = current_value[:-1]
+                    st.rerun()
+            st.markdown("</div>", unsafe_allow_html=True)
+
+            st.markdown("<div class='pin-modal-actions'>", unsafe_allow_html=True)
+            modal_cols = st.columns([1, 1], gap="small")
+            with modal_cols[0]:
+                if st.button("Cancel", key="pin-modal-cancel"):
+                    st.session_state["pin_modal_owner"] = None
+                    st.session_state["pin_modal_label"] = ""
+                    st.session_state["pin_modal_error"] = ""
+                    st.session_state["pin_modal_open"] = False
+                    st.session_state.pop("pin-modal-input", None)
+                    if "auth_owner" in st.query_params:
+                        del st.query_params["auth_owner"]
+                    st.rerun()
+            with modal_cols[1]:
+                if st.button("Unlock", key="pin-modal-submit"):
+                    if len(pin_value) == 4 and pin_value.isdigit() and owner_repo.verify_pin(
+                        pin_owner_key, pin_value
+                    ):
+                        st.session_state["pin_modal_owner"] = None
+                        st.session_state["pin_modal_label"] = ""
+                        st.session_state["pin_modal_error"] = ""
+                        st.session_state["pin_modal_open"] = False
+                        st.session_state.pop("pin-modal-input", None)
+                        if "auth_owner" in st.query_params:
+                            del st.query_params["auth_owner"]
+                        navigate_to(VIEW_OWNER, owner=pin_owner_key)
+                        st.rerun()
+                    else:
+                        st.session_state["pin_modal_error"] = (
+                            "Invalid PIN. Please try again."
+                        )
+                        st.session_state["pin-modal-input"] = ""
+                        st.rerun()
+            st.markdown("</div></div></div>", unsafe_allow_html=True)
+
+    st.divider()
+    if st.button("Open device console", key="home-to-console"):
+        navigate_to(VIEW_CONSOLE)
+
+    render_stat_cards(summary_stats, muted=True)
+    st.markdown(
+        f"<p class='home-last-sync'>Last sync {refreshed_at}</p>",
+        unsafe_allow_html=True,
+    )
+
+
+def render_owner_detail_view(
+    owner: str, rows_all: list[dict[str, object]]
+) -> None:
+    owner_repo = get_owner_repository()
+    owner_entry = owner_repo.get(owner)
+    owner_label = (
+        owner_entry.display_name if owner_entry is not None else owner.title()
+    ) if owner else "Unknown owner"
+    if st.button("← All owners", key="owner-back-home"):
+        navigate_to(VIEW_HOME)
+        st.stop()
+    st.markdown(f"## {owner_label}")
+
+    owner_rows = [row for row in rows_all if row["owner"] == owner]
+    if not owner_rows:
+        st.info("No devices found for this owner.")
+        return
+
+    device_repo = get_device_repository()
+    rows_with_devices: list[tuple[dict[str, object], Device]] = []
+    for row in owner_rows:
+        device = device_repo.get_by_mac(row["mac"])
+        if device:
+            rows_with_devices.append((row, device))
+
+    if not rows_with_devices:
+        st.info("No registered devices matched this owner.")
+        return
+
+    render_owner_table(owner, rows_with_devices)
+
 def load_unregistered_active_clients() -> list[tuple[dict[str, object], Device]]:
+    device_repo = get_device_repository()
     with locker_context() as (firewall, locker):
         service = NetworkDeviceService(firewall.client)
         try:
@@ -815,7 +1500,7 @@ def load_unregistered_active_clients() -> list[tuple[dict[str, object], Device]]
         for client_info in clients:
             mac = client_info.get("mac")
             mac_value = mac if isinstance(mac, str) else None
-            if not mac_value or device_by_mac(mac_value):
+            if not mac_value or device_repo.get_by_mac(mac_value):
                 continue
 
             vendor = lookup_mac_vendor(mac_value)
@@ -855,21 +1540,9 @@ def load_unregistered_active_clients() -> list[tuple[dict[str, object], Device]]
     return unknown_clients
 
 
-def main() -> None:
-    st.set_page_config(page_title="UniFi Device Lock Controller", layout="wide")
-    apply_global_styles()
-
-    st.session_state.setdefault("last_refreshed", datetime.now())
-    st.session_state.setdefault("last_action", None)
-    st.session_state.setdefault("refresh_interval_label", "10s")
-    st.session_state.setdefault(
-        "refresh_interval_seconds",
-        REFRESH_INTERVAL_OPTIONS["10s"],
-    )
-    st.session_state.setdefault("last_auto_refresh", datetime.now())
-
-    with st.spinner("Loading device inventory..."):
-        rows_all = load_device_status()
+def render_console_view(rows_all: list[dict[str, object]]) -> None:
+    if st.button("← Owners overview", key="console-back-home"):
+        navigate_to(VIEW_HOME)
 
     owners = sorted({row["owner"] for row in rows_all})
     total_devices = len(rows_all)
@@ -932,10 +1605,11 @@ def main() -> None:
     else:
         rows_filtered = rows_owner_filtered
 
+    device_repo = get_device_repository()
     rows_with_devices = [
         (row, device)
         for row in rows_filtered
-        if (device := device_by_mac(row["mac"])) is not None
+        if (device := device_repo.get_by_mac(row["mac"])) is not None
     ]
     filtered_devices = [device for _, device in rows_with_devices]
 
@@ -1002,12 +1676,92 @@ def main() -> None:
             if search_lower
             in " ".join(
                 str(record.get(field, "")).lower()
-                for field in ("name", "mac", "ip", "vendor", "last_seen")
+                for field in ("name", "mac", "vendor")
             )
         ]
-
     st.markdown("### Active unregistered devices")
     render_unregistered_cards(unregistered_clients)
+
+def main() -> None:
+    st.set_page_config(page_title="UniFi Device Lock Controller", layout="wide")
+    apply_global_styles()
+
+    query_params = st.query_params
+    owner_repo = get_owner_repository()
+
+    def _last_value(raw: object) -> str | None:
+        if isinstance(raw, list):
+            return raw[-1] if raw else None
+        return raw
+
+    view_raw = query_params.get("view")
+    owner_raw = query_params.get("owner")
+    auth_raw = query_params.get("auth_owner")
+
+    if isinstance(view_raw, list):
+        view_value = view_raw[-1] if view_raw else None
+    else:
+        view_value = view_raw
+
+    owner_value = _last_value(owner_raw)
+    auth_value = _last_value(auth_raw)
+
+    view_param = view_value or VIEW_HOME
+    if view_param not in {VIEW_HOME, VIEW_CONSOLE, VIEW_OWNER}:
+        view_param = VIEW_HOME
+    owner_param = owner_value if view_param == VIEW_OWNER else None
+
+    st.session_state["ui_view"] = view_param
+    st.session_state["selected_owner"] = owner_param
+
+    if view_param == VIEW_HOME:
+        if auth_value:
+            if st.session_state.get("pin_modal_owner") != auth_value:
+                st.session_state["pin_modal_owner"] = auth_value
+                owner_entry = owner_repo.get(auth_value)
+                st.session_state["pin_modal_label"] = (
+                    owner_entry.display_name
+                    if owner_entry is not None
+                    else auth_value.title()
+                )
+                st.session_state["pin_modal_error"] = ""
+                st.session_state["pin_modal_open"] = True
+                st.session_state.pop("pin-modal-input", None)
+            else:
+                st.session_state["pin_modal_open"] = True
+        else:
+            st.session_state["pin_modal_open"] = False
+            st.session_state["pin_modal_owner"] = None
+            st.session_state["pin_modal_label"] = ""
+            st.session_state["pin_modal_error"] = ""
+    st.session_state.setdefault("last_refreshed", datetime.now())
+    st.session_state.setdefault("last_action", None)
+    st.session_state.setdefault("refresh_interval_label", "10s")
+    st.session_state.setdefault(
+        "refresh_interval_seconds",
+        REFRESH_INTERVAL_OPTIONS["10s"],
+    )
+    st.session_state.setdefault("last_auto_refresh", datetime.now())
+    st.session_state.setdefault("pin_modal_owner", None)
+    st.session_state.setdefault("pin_modal_label", "")
+    st.session_state.setdefault("pin_modal_error", "")
+    st.session_state.setdefault("pin_modal_open", False)
+
+    with st.spinner("Loading device inventory..."):
+        rows_all = load_device_status()
+
+    current_view = st.session_state.get("ui_view", VIEW_HOME)
+    if current_view == VIEW_OWNER:
+        owner = st.session_state.get("selected_owner")
+        if owner:
+            render_owner_detail_view(owner, rows_all)
+        else:
+            st.session_state["ui_view"] = VIEW_HOME
+            render_home_view(rows_all)
+    elif current_view == VIEW_CONSOLE:
+        render_console_view(rows_all)
+    else:
+        render_home_view(rows_all)
 
 
 if __name__ == "__main__":

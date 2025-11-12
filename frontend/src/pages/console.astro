@@ -1,0 +1,10 @@
+---
+import MainLayout from "@/layouts/MainLayout.astro";
+import { FullConsole } from "@/components/dashboard/FullConsole";
+---
+
+<MainLayout title="Full Device Console">
+  <section class="mx-auto w-full max-w-[1200px] px-6 py-12">
+    <FullConsole client:only="react" />
+  </section>
+</MainLayout>

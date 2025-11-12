@@ -3,8 +3,13 @@ set -euo pipefail
 
 export UBIQUITI_ENV_FILE="$(pwd)/.env"
 
-uv run python - <<'PY'
-from ubiquiti import FirewallManager, UniFiClient, settings, suppress_insecure_request_warning
+uv run --project backend python - <<'PY'
+from backend.ubiquiti import (
+    FirewallManager,
+    UniFiClient,
+    settings,
+    suppress_insecure_request_warning,
+)
 
 suppress_insecure_request_warning(settings.verify_ssl)
 

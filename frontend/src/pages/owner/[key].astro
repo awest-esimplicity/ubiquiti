@@ -1,0 +1,25 @@
+---
+import MainLayout from "@/layouts/MainLayout.astro";
+import { OwnerDevices } from "@/components/dashboard/OwnerDevices";
+import data from "@/data/mock-config.json";
+
+export async function getStaticPaths() {
+  return data.owners.map((owner) => ({
+    params: { key: owner.key }
+  }));
+}
+
+const { key } = Astro.params;
+if (!key) {
+  throw new Error("Owner key not provided.");
+}
+---
+
+<MainLayout title={`Owner · ${key}`}>
+  <section class="mx-auto w-full max-w-[1100px] px-6 py-12 space-y-6">
+    <a href="/" class="inline-flex items-center text-sm text-slate-300 transition hover:text-slate-100">
+      ← All owners
+    </a>
+    <OwnerDevices client:only="react" ownerKey={key} />
+  </section>
+</MainLayout>

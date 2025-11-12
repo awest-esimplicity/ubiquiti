@@ -1,0 +1,20 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  color-scheme: dark;
+}
+
+body {
+  background-color: #060b1a;
+  background-image:
+    radial-gradient(1000px circle at 0% 0%, rgba(56, 189, 248, 0.24), transparent 70%),
+    radial-gradient(1100px circle at 100% 0%, rgba(99, 102, 241, 0.2), transparent 75%),
+    linear-gradient(180deg, rgba(12, 19, 40, 0.98) 0%, rgba(7, 12, 26, 0.98) 45%, rgba(4, 7, 16, 1) 100%);
+  background-repeat: no-repeat;
+  background-attachment: fixed;
+  background-size: 1400px 950px, 1400px 950px, cover;
+  background-position: 0% 0%, 100% 0%, 50% 0%;
+  overflow-x: hidden;
+}

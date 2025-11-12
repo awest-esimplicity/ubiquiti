@@ -1,0 +1,22 @@
+version: "3.9"
+
+services:
+  backend:
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+    container_name: ubiquiti-backend
+    restart: unless-stopped
+    environment:
+      UBIQUITI_DB_URL: ""
+      UBIQUITI_DB_ECHO: "false"
+      UBIQUITI_DB_MODE: ${UBIQUITI_DB_MODE:-memory}
+      UBIQUITI_LOG_LEVEL: INFO
+      UNIFI_API_KEY: ${UNIFI_API_KEY:-}
+    ports:
+      - "8000:8000"
+    volumes:
+      - backend-data:/app/data
+
+volumes:
+  backend-data:

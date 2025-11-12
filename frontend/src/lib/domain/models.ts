@@ -1,0 +1,38 @@
+export type DeviceType = "computer" | "tv" | "switch" | "streaming" | "console" | "phone" | "tablet" | "unknown";
+
+export interface Device {
+  name: string;
+  type: DeviceType;
+  mac: string;
+  vendor?: string;
+  locked: boolean;
+}
+
+export interface OwnerSummary {
+  key: string;
+  displayName: string;
+  pin?: string | null;
+  devices: Device[];
+}
+
+export interface UnregisteredDevice {
+  name: string;
+  mac: string;
+  ip?: string;
+  vendor?: string;
+  locked: boolean;
+  lastSeen?: string;
+}
+
+export interface DashboardMetadata {
+  totalDevices: number;
+  lockedDevices: number;
+  unknownVendors: number;
+  lastSync: string;
+}
+
+export interface DashboardSnapshot {
+  owners: OwnerSummary[];
+  unregistered: UnregisteredDevice[];
+  metadata: DashboardMetadata;
+}

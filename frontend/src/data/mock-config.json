@@ -1,0 +1,58 @@
+{
+  "owners": [
+    {
+      "key": "house",
+      "displayName": "House",
+      "pin": "3841",
+      "devices": [
+        { "name": "Guest Bedroom TV", "type": "tv", "mac": "AA:BB:CC:DD:01", "vendor": "Samsung", "locked": false },
+        { "name": "Living Room Roku Wired", "type": "streaming", "mac": "AA:BB:CC:DD:02", "vendor": "Roku", "locked": false },
+        { "name": "Living Room Roku Wireless", "type": "streaming", "mac": "AA:BB:CC:DD:03", "vendor": "Roku", "locked": false },
+        { "name": "House Switch", "type": "switch", "mac": "AA:BB:CC:DD:04", "vendor": "Ubiquiti", "locked": false }
+      ]
+    },
+    {
+      "key": "jayce",
+      "displayName": "Jayce",
+      "pin": "7023",
+      "devices": [
+        { "name": "Jayce Laptop", "type": "computer", "mac": "AA:BB:CC:EE:01", "vendor": "Apple", "locked": false },
+        { "name": "Jayce Tablet", "type": "tablet", "mac": "AA:BB:CC:EE:02", "vendor": "Apple", "locked": false }
+      ]
+    },
+    {
+      "key": "kade",
+      "displayName": "Kade",
+      "pin": "9482",
+      "devices": [
+        { "name": "Kade's Computer", "type": "computer", "mac": "AA:BB:CC:FF:01", "vendor": "Apple", "locked": false },
+        { "name": "Kade's Xbox", "type": "console", "mac": "AA:BB:CC:FF:02", "vendor": "Microsoft", "locked": true }
+      ]
+    },
+    {
+      "key": "kailah",
+      "displayName": "Kailah",
+      "pin": "2157",
+      "devices": [
+        { "name": "Kailah's MacBook", "type": "computer", "mac": "AA:BB:CC:99:01", "vendor": "Apple", "locked": false },
+        { "name": "Kailah's Phone", "type": "phone", "mac": "AA:BB:CC:99:02", "vendor": "Apple", "locked": false }
+      ]
+    }
+  ],
+  "unregistered": [
+    {
+      "name": "Unknown Tablet",
+      "mac": "11:22:33:44:55",
+      "ip": "192.168.1.220",
+      "vendor": "Amazon",
+      "locked": false,
+      "lastSeen": "2025-11-11T15:40:00Z"
+    }
+  ],
+  "metadata": {
+    "totalDevices": 28,
+    "lockedDevices": 1,
+    "unknownVendors": 2,
+    "lastSync": "2025-11-11T15:48:00Z"
+  }
+}
