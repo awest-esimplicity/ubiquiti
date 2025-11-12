@@ -21,6 +21,7 @@ type StatusFilter = "all" | "locked" | "unlocked";
 interface FullConsoleState {
   snapshot: DashboardSnapshot | null;
   loading: boolean;
+  refreshing: boolean;
   error?: string;
 }
 
@@ -44,20 +45,6 @@ const STATUS_OPTIONS: { label: string; value: StatusFilter }[] = [
   { label: "Locked only", value: "locked" },
   { label: "Unlocked only", value: "unlocked" }
 ];
-
-function recalculateMetadata(snapshot: DashboardSnapshot): DashboardSnapshot {
-  const lockedDevices = snapshot.owners.reduce(
-    (total, owner) => total + owner.devices.filter((device) => device.locked).length,
-    0
-  );
-  return {
-    ...snapshot,
-    metadata: {
-      ...snapshot.metadata,
-      lockedDevices
-    }
-  };
-}
 
 function filterDeviceByStatus(device: Device | UnregisteredDevice, status: StatusFilter) {
   if (status === "all") {
@@ -142,7 +129,8 @@ function computeFilteredData(
 export function FullConsole() {
   const [state, setState] = useState<FullConsoleState>({
     snapshot: null,
-    loading: false
+    loading: false,
+    refreshing: false
   });
   const [isUnlocked, setIsUnlocked] = useState(false);
   const [pinValue, setPinValue] = useState("");
@@ -152,6 +140,9 @@ export function FullConsole() {
   const [ownerFilter, setOwnerFilter] = useState<string>("all");
   const [typeFilter, setTypeFilter] = useState<DeviceType | "all">("all");
   const [scheduleOwner, setScheduleOwner] = useState<{ key: string; name: string }>();
+  const [pendingDeviceMacs, setPendingDeviceMacs] = useState<Set<string>>(new Set());
+  const [pendingOwnerKeys, setPendingOwnerKeys] = useState<Set<string>>(new Set());
+  const [pendingFilteredAction, setPendingFilteredAction] = useState(false);
 
   useEffect(() => {
     if (typeof window === "undefined") {
@@ -171,10 +162,10 @@ export function FullConsole() {
     lockControllerService
       .loadSnapshot()
       .then((snapshot) => {
-        setState({ snapshot, loading: false });
+        setState({ snapshot, loading: false, refreshing: false, error: undefined });
       })
       .catch((error: Error) => {
-        setState({ snapshot: null, loading: false, error: error.message });
+        setState({ snapshot: null, loading: false, refreshing: false, error: error.message });
       });
   }, [isUnlocked]);
 
@@ -197,6 +188,31 @@ export function FullConsole() {
     if (typeof window !== "undefined") {
       window.location.href = "/";
     }
+  }, []);
+
+  const refreshSnapshot = useCallback(() => {
+    setState((prev) => ({
+      ...prev,
+      refreshing: true,
+      error: undefined
+    }));
+    return lockControllerService
+      .refresh()
+      .then((snapshot) => {
+        setState({
+          snapshot,
+          loading: false,
+          refreshing: false,
+          error: undefined
+        });
+      })
+      .catch((error: Error) => {
+        setState((prev) => ({
+          ...prev,
+          refreshing: false,
+          error: error.message
+        }));
+      });
   }, []);
 
   const handleOpenSchedule = useCallback((owner: OwnerSummary) => {
@@ -236,22 +252,33 @@ export function FullConsole() {
 
   const handleToggleDevice = useCallback(
     (ownerKey: string, device: Device) => {
-      const desiredState = !device.locked;
-      updateSnapshot((current) => {
-        const owners = current.owners.map((owner) =>
-          owner.key === ownerKey
-            ? {
-                ...owner,
-                devices: owner.devices.map((item) =>
-                  item.mac === device.mac ? { ...item, locked: desiredState } : item
-                )
-              }
-            : owner
-        );
-        return recalculateMetadata({ ...current, owners });
+      setPendingDeviceMacs((prev) => {
+        const next = new Set(prev);
+        next.add(device.mac);
+        return next;
       });
+
+      const actionPromise = device.locked
+        ? lockControllerService.unlockDevice(device)
+        : lockControllerService.lockDevice(device);
+
+      actionPromise
+        .then(() => refreshSnapshot())
+        .catch((error: Error) => {
+          setState((prev) => ({
+            ...prev,
+            error: error.message
+          }));
+        })
+        .finally(() => {
+          setPendingDeviceMacs((prev) => {
+            const next = new Set(prev);
+            next.delete(device.mac);
+            return next;
+          });
+        });
     },
-    [updateSnapshot]
+    [refreshSnapshot]
   );
 
   const handleToggleUnregistered = useCallback(
@@ -269,19 +296,47 @@ export function FullConsole() {
 
   const handleOwnerBulk = useCallback(
     (ownerKey: string, locked: boolean) => {
-      updateSnapshot((current) => {
-        const owners = current.owners.map((owner) =>
-          owner.key === ownerKey
-            ? {
-                ...owner,
-                devices: owner.devices.map((device) => ({ ...device, locked }))
-              }
-            : owner
-        );
-        return recalculateMetadata({ ...current, owners });
+      setPendingOwnerKeys((prev) => {
+        const next = new Set(prev);
+        next.add(ownerKey);
+        return next;
       });
+
+      const ownerSummary = state.snapshot?.owners.find((owner) => owner.key === ownerKey);
+      if (!ownerSummary) {
+        setState((prev) => ({
+          ...prev,
+          error: "Owner not found."
+        }));
+        setPendingOwnerKeys((prev) => {
+          const next = new Set(prev);
+          next.delete(ownerKey);
+          return next;
+        });
+        return;
+      }
+
+      const actionPromise = locked
+        ? lockControllerService.lockOwner(ownerSummary)
+        : lockControllerService.unlockOwner(ownerSummary);
+
+      actionPromise
+        .then(() => refreshSnapshot())
+        .catch((error: Error) => {
+          setState((prev) => ({
+            ...prev,
+            error: error.message
+          }));
+        })
+        .finally(() => {
+          setPendingOwnerKeys((prev) => {
+            const next = new Set(prev);
+            next.delete(ownerKey);
+            return next;
+          });
+        });
     },
-    [updateSnapshot]
+    [refreshSnapshot, state.snapshot?.owners]
   );
 
   const filtered = useMemo(
@@ -321,55 +376,34 @@ export function FullConsole() {
 
   const handleFilteredBulk = useCallback(
     (locked: boolean) => {
-      if (!state.snapshot) {
-        return;
-      }
-      if (filtered.owners.length === 0 && filtered.unregistered.length === 0) {
+      if (filtered.owners.length === 0) {
         return;
       }
 
       const registeredDevices = filtered.owners.flatMap((owner) => owner.devices);
-      if (registeredDevices.length > 0) {
-        void (locked
-          ? lockControllerService.lockFiltered(registeredDevices)
-          : lockControllerService.unlockFiltered(registeredDevices));
+      if (registeredDevices.length === 0) {
+        return;
       }
 
-      const filteredOwnerLookup = new Map(
-        filtered.owners.map((owner) => [owner.key, new Set(owner.devices.map((device) => device.mac))])
-      );
-      const filteredUnregisteredSet = new Set(filtered.unregistered.map((device) => device.mac));
+      setPendingFilteredAction(true);
 
-      setState((prev) => {
-        if (!prev.snapshot) {
-          return prev;
-        }
+      const actionPromise = locked
+        ? lockControllerService.lockFiltered(registeredDevices)
+        : lockControllerService.unlockFiltered(registeredDevices);
 
-        const owners = prev.snapshot.owners.map((owner) => {
-          const macSet = filteredOwnerLookup.get(owner.key);
-          if (!macSet) {
-            return owner;
-          }
-          return {
-            ...owner,
-            devices: owner.devices.map((device) => (macSet.has(device.mac) ? { ...device, locked } : device))
-          };
+      actionPromise
+        .then(() => refreshSnapshot())
+        .catch((error: Error) => {
+          setState((prev) => ({
+            ...prev,
+            error: error.message
+          }));
+        })
+        .finally(() => {
+          setPendingFilteredAction(false);
         });
-
-        const unregistered = (prev.snapshot.unregistered ?? []).map((device) =>
-          filteredUnregisteredSet.has(device.mac) ? { ...device, locked } : device
-        );
-
-        const updatedSnapshot = recalculateMetadata({
-          ...prev.snapshot,
-          owners,
-          unregistered
-        });
-
-        return { ...prev, snapshot: updatedSnapshot };
-      });
     },
-    [filtered, state.snapshot]
+    [filtered, refreshSnapshot]
   );
 
   if (!isUnlocked) {
@@ -513,16 +547,16 @@ export function FullConsole() {
               <Button
                 variant="secondary"
                 onClick={() => handleFilteredBulk(false)}
-                disabled={!hasFilteredResults}
+                disabled={!hasFilteredResults || pendingFilteredAction || state.refreshing}
               >
-                Unlock filtered
+                {pendingFilteredAction ? "Working…" : "Unlock filtered"}
               </Button>
               <Button
                 variant="destructive"
                 onClick={() => handleFilteredBulk(true)}
-                disabled={!hasFilteredResults}
+                disabled={!hasFilteredResults || pendingFilteredAction || state.refreshing}
               >
-                Lock filtered
+                {pendingFilteredAction ? "Working…" : "Lock filtered"}
               </Button>
             </div>
           </div>
@@ -594,11 +628,19 @@ export function FullConsole() {
               <Button variant="outline" onClick={() => handleOpenSchedule(owner)}>
                 Schedule
               </Button>
-              <Button variant="destructive" onClick={() => handleOwnerBulk(owner.key, true)}>
-                Lock all
+              <Button
+                variant="destructive"
+                onClick={() => handleOwnerBulk(owner.key, true)}
+                disabled={pendingOwnerKeys.has(owner.key) || state.refreshing}
+              >
+                {pendingOwnerKeys.has(owner.key) ? "Working…" : "Lock all"}
               </Button>
-              <Button variant="secondary" onClick={() => handleOwnerBulk(owner.key, false)}>
-                Unlock all
+              <Button
+                variant="secondary"
+                onClick={() => handleOwnerBulk(owner.key, false)}
+                disabled={pendingOwnerKeys.has(owner.key) || state.refreshing}
+              >
+                {pendingOwnerKeys.has(owner.key) ? "Working…" : "Unlock all"}
               </Button>
             </div>
           </div>
@@ -635,8 +677,13 @@ export function FullConsole() {
                     size="sm"
                     variant={device.locked ? "secondary" : "destructive"}
                     onClick={() => handleToggleDevice(owner.key, device)}
+                    disabled={pendingDeviceMacs.has(device.mac) || state.refreshing}
                   >
-                    {device.locked ? "Unlock" : "Lock"}
+                    {pendingDeviceMacs.has(device.mac)
+                      ? "Working…"
+                      : device.locked
+                      ? "Unlock"
+                      : "Lock"}
                   </Button>
                 </div>
               </article>
