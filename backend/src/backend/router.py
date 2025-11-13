@@ -5,7 +5,7 @@ from __future__ import annotations
 from datetime import UTC, datetime
 from typing import Annotated
 
-from fastapi import APIRouter, HTTPException, Query, Response, status
+from fastapi import APIRouter, HTTPException, Query, Request, Response, status
 
 from . import schemas
 from .owners import get_owner_repository
@@ -15,6 +15,7 @@ from .services import (
     build_device_from_target,
     get_registered_device_records,
     get_unregistered_client_records,
+    register_device_for_owner,
     summarize_owner_records,
 )
 from .schedules import get_schedule_repository
@@ -182,6 +183,35 @@ def list_owner_devices(owner_key: str) -> schemas.DeviceListResponse:
             )
             for record in filtered
         ]
+    )
+
+
+@router.post(
+    "/owners/{owner_key}/devices",
+    response_model=schemas.DeviceStatus,
+    status_code=status.HTTP_201_CREATED,
+)
+def register_owner_device(
+    owner_key: str, payload: schemas.DeviceRegistrationRequest
+) -> schemas.DeviceStatus:
+    _require_owner(owner_key)
+    try:
+        record = register_device_for_owner(
+            owner_key,
+            mac=payload.mac,
+            name=payload.name,
+            device_type=payload.type,
+        )
+    except UniFiAPIError as exc:
+        raise HTTPException(status.HTTP_502_BAD_GATEWAY, detail=str(exc)) from exc
+
+    return schemas.DeviceStatus(
+        name=record["name"],
+        owner=record["owner"],
+        type=record["type"],
+        mac=record["mac"],
+        locked=record["locked"],
+        vendor=record["vendor"],
     )
 
 
@@ -367,6 +397,50 @@ def enable_schedule(schedule_id: str) -> schemas.DeviceSchedule:
     if schedule is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Schedule not found.")
     return schedule
+
+
+@router.get(
+    "/session/whoami",
+    response_model=schemas.WhoAmIResponse,
+    tags=["session"],
+)
+def get_session_identity(request: Request) -> schemas.WhoAmIResponse:
+    forwarded_header = request.headers.get("x-forwarded-for") or request.headers.get(
+        "X-Forwarded-For", ""
+    )
+    forwarded_values = [
+        value.strip()
+        for value in forwarded_header.split(",")
+        if value.strip()
+    ]
+    if not forwarded_values and forwarded_header.strip():
+        forwarded_values = [forwarded_header.strip()]
+    client_ip = forwarded_values[0] if forwarded_values else None
+    if client_ip is None and request.client:
+        client_ip = request.client.host
+
+    try:
+        clients = get_unregistered_client_records()
+    except UniFiAPIError as exc:
+        raise HTTPException(status.HTTP_502_BAD_GATEWAY, detail=str(exc)) from exc
+
+    probable = []
+    if client_ip:
+        normalized = client_ip.strip().lower()
+        probable = [
+            schemas.UnregisteredClient(**client)
+            for client in clients
+            if isinstance(client.get("ip"), str) and client["ip"].strip().lower() == normalized
+        ]
+
+    if not forwarded_values and client_ip:
+        forwarded_values = [client_ip]
+
+    return schemas.WhoAmIResponse(
+        ip=client_ip,
+        forwarded_for=forwarded_values,
+        probable_clients=probable,
+    )
 
 
 @router.post(

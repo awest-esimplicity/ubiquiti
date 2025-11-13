@@ -32,6 +32,12 @@ export interface DeviceListResponse {
   devices: DeviceStatus[];
 }
 
+export interface DeviceRegistrationRequest {
+  mac: string;
+  name?: string | null;
+  type?: string | null;
+}
+
 export interface UnregisteredClient {
   name: string;
   mac: string;
@@ -67,6 +73,12 @@ export interface SingleClientLockRequest extends DeviceTarget {
 
 export interface VerifyPinResponse {
   valid: boolean;
+}
+
+export interface WhoAmIResponse {
+  ip?: string | null;
+  forwardedFor: string[];
+  probableClients: UnregisteredClient[];
 }
 
 export interface ApiScheduleWindow {

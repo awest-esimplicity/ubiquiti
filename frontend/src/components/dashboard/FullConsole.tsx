@@ -11,7 +11,7 @@ import type {
   Device,
   DeviceType,
   OwnerSummary,
-  UnregisteredDevice
+  UnregisteredDevice,
 } from "@/lib/domain/models";
 import { cn } from "@/lib/utils/cn";
 import { formatTimestamp } from "@/lib/utils/date";
@@ -40,10 +40,27 @@ interface FilteredOwners {
   counts: FilterCounts;
 }
 
+interface RegistrationFormValues {
+  ownerKey: string;
+  name: string;
+  type: string;
+}
+
+const REGISTRATION_TYPES: DeviceType[] = [
+  "computer",
+  "tv",
+  "switch",
+  "streaming",
+  "console",
+  "phone",
+  "tablet",
+  "unknown",
+];
+
 const STATUS_OPTIONS: { label: string; value: StatusFilter }[] = [
   { label: "All statuses", value: "all" },
   { label: "Locked only", value: "locked" },
-  { label: "Unlocked only", value: "unlocked" }
+  { label: "Unlocked only", value: "unlocked" },
 ];
 
 function filterDeviceByStatus(device: Device | UnregisteredDevice, status: StatusFilter) {
@@ -61,8 +78,8 @@ function matchesSearch(device: Device | UnregisteredDevice, searchTerm: string) 
   const candidates = [
     "name" in device ? device.name : "",
     "mac" in device ? device.mac : "",
-    "vendor" in device ? device.vendor ?? "" : "",
-    "type" in device ? device.type ?? "" : ""
+    "vendor" in device ? (device.vendor ?? "") : "",
+    "type" in device ? (device.type ?? "") : "",
   ];
   return candidates.some((entry) => entry?.toLowerCase().includes(value));
 }
@@ -72,7 +89,7 @@ function computeFilteredData(
   searchTerm: string,
   status: StatusFilter,
   ownerFilter: string,
-  typeFilter: DeviceType | "all"
+  typeFilter: DeviceType | "all",
 ): FilteredOwners {
   if (!snapshot) {
     return {
@@ -84,8 +101,8 @@ function computeFilteredData(
         unknownVendors: 0,
         filteredDevices: 0,
         filteredLocked: 0,
-        filteredUnknown: 0
-      }
+        filteredUnknown: 0,
+      },
     };
   }
 
@@ -97,20 +114,23 @@ function computeFilteredData(
         (device) =>
           filterDeviceByStatus(device, status) &&
           matchesSearch(device, searchTerm) &&
-          (typeFilter === "all" || device.type === typeFilter)
-      )
+          (typeFilter === "all" || device.type === typeFilter),
+      ),
     }))
     .filter((owner) => owner.devices.length > 0);
 
   const filteredUnregistered = (snapshot.unregistered ?? []).filter(
-    (device) => filterDeviceByStatus(device, status) && matchesSearch(device, searchTerm)
+    (device) => filterDeviceByStatus(device, status) && matchesSearch(device, searchTerm),
   );
 
   const filteredDevices = filteredOwners.flatMap((owner) => owner.devices);
   const filteredLocked = filteredDevices.filter((device) => device.locked).length;
   const filteredUnknown =
-    filteredDevices.filter((device) => !device.vendor || device.vendor.toLowerCase() === "unknown").length +
-    filteredUnregistered.filter((device) => !device.vendor || device.vendor.toLowerCase() === "unknown").length;
+    filteredDevices.filter((device) => !device.vendor || device.vendor.toLowerCase() === "unknown")
+      .length +
+    filteredUnregistered.filter(
+      (device) => !device.vendor || device.vendor.toLowerCase() === "unknown",
+    ).length;
 
   return {
     owners: filteredOwners,
@@ -121,8 +141,8 @@ function computeFilteredData(
       unknownVendors: snapshot.metadata.unknownVendors,
       filteredDevices: filteredDevices.length + filteredUnregistered.length,
       filteredLocked,
-      filteredUnknown
-    }
+      filteredUnknown,
+    },
   };
 }
 
@@ -130,7 +150,7 @@ export function FullConsole() {
   const [state, setState] = useState<FullConsoleState>({
     snapshot: null,
     loading: false,
-    refreshing: false
+    refreshing: false,
   });
   const [isUnlocked, setIsUnlocked] = useState(false);
   const [pinValue, setPinValue] = useState("");
@@ -143,6 +163,11 @@ export function FullConsole() {
   const [pendingDeviceMacs, setPendingDeviceMacs] = useState<Set<string>>(new Set());
   const [pendingOwnerKeys, setPendingOwnerKeys] = useState<Set<string>>(new Set());
   const [pendingFilteredAction, setPendingFilteredAction] = useState(false);
+  const [registrationForms, setRegistrationForms] = useState<
+    Record<string, RegistrationFormValues>
+  >({});
+  const [pendingRegistrationMacs, setPendingRegistrationMacs] = useState<Set<string>>(new Set());
+  const [registrationSuccess, setRegistrationSuccess] = useState<Set<string>>(new Set());
 
   useEffect(() => {
     if (typeof window === "undefined") {
@@ -169,6 +194,17 @@ export function FullConsole() {
       });
   }, [isUnlocked]);
 
+  useEffect(() => {
+    if (!state.snapshot) {
+      return;
+    }
+    const activeMacs = new Set(state.snapshot.unregistered.map((device) => device.mac));
+    setRegistrationSuccess((prev) => {
+      const next = new Set(Array.from(prev).filter((mac) => activeMacs.has(mac)));
+      return next.size === prev.size ? prev : next;
+    });
+  }, [state.snapshot]);
+
   const handlePinDigit = useCallback((digit: string) => {
     setPinValue((prev) => (prev.length >= 4 ? prev : prev + digit));
     setPinError(undefined);
@@ -194,7 +230,7 @@ export function FullConsole() {
     setState((prev) => ({
       ...prev,
       refreshing: true,
-      error: undefined
+      error: undefined,
     }));
     return lockControllerService
       .refresh()
@@ -203,14 +239,14 @@ export function FullConsole() {
           snapshot,
           loading: false,
           refreshing: false,
-          error: undefined
+          error: undefined,
         });
       })
       .catch((error: Error) => {
         setState((prev) => ({
           ...prev,
           refreshing: false,
-          error: error.message
+          error: error.message,
         }));
       });
   }, []);
@@ -247,7 +283,7 @@ export function FullConsole() {
         return { ...prev, snapshot: nextSnapshot };
       });
     },
-    []
+    [],
   );
 
   const handleToggleDevice = useCallback(
@@ -267,7 +303,7 @@ export function FullConsole() {
         .catch((error: Error) => {
           setState((prev) => ({
             ...prev,
-            error: error.message
+            error: error.message,
           }));
         })
         .finally(() => {
@@ -278,7 +314,7 @@ export function FullConsole() {
           });
         });
     },
-    [refreshSnapshot]
+    [refreshSnapshot],
   );
 
   const handleToggleUnregistered = useCallback(
@@ -286,12 +322,12 @@ export function FullConsole() {
       const desiredState = !device.locked;
       updateSnapshot((current) => {
         const unregistered = (current.unregistered ?? []).map((item) =>
-          item.mac === device.mac ? { ...item, locked: desiredState } : item
+          item.mac === device.mac ? { ...item, locked: desiredState } : item,
         );
         return { ...current, unregistered };
       });
     },
-    [updateSnapshot]
+    [updateSnapshot],
   );
 
   const handleOwnerBulk = useCallback(
@@ -306,7 +342,7 @@ export function FullConsole() {
       if (!ownerSummary) {
         setState((prev) => ({
           ...prev,
-          error: "Owner not found."
+          error: "Owner not found.",
         }));
         setPendingOwnerKeys((prev) => {
           const next = new Set(prev);
@@ -325,7 +361,7 @@ export function FullConsole() {
         .catch((error: Error) => {
           setState((prev) => ({
             ...prev,
-            error: error.message
+            error: error.message,
           }));
         })
         .finally(() => {
@@ -336,12 +372,83 @@ export function FullConsole() {
           });
         });
     },
-    [refreshSnapshot, state.snapshot?.owners]
+    [refreshSnapshot, state.snapshot?.owners],
+  );
+
+  const handleRegistrationChange = useCallback(
+    (mac: string, updates: Partial<RegistrationFormValues>, defaults: RegistrationFormValues) => {
+      setRegistrationForms((prev) => {
+        const current = prev[mac] ?? defaults;
+        const next = { ...current, ...updates };
+        return { ...prev, [mac]: next };
+      });
+    },
+    [],
+  );
+
+  const handleRegisterDevice = useCallback(
+    (device: UnregisteredDevice) => {
+      const defaults: RegistrationFormValues = {
+        ownerKey: "",
+        name: device.name,
+        type: "unknown",
+      };
+      const form = registrationForms[device.mac] ?? defaults;
+
+      if (!form.ownerKey) {
+        setState((prev) => ({
+          ...prev,
+          error: "Select an owner before registering this device.",
+        }));
+        return;
+      }
+
+      setPendingRegistrationMacs((prev) => {
+        const next = new Set(prev);
+        next.add(device.mac);
+        return next;
+      });
+
+      lockControllerService
+        .registerDevice(form.ownerKey, {
+          mac: device.mac,
+          name: form.name?.trim() || device.mac,
+          type: form.type?.trim() || undefined,
+        })
+        .then(() => {
+          setRegistrationForms((prev) => {
+            const next = { ...prev };
+            delete next[device.mac];
+            return next;
+          });
+          setRegistrationSuccess((prev) => {
+            const next = new Set(prev);
+            next.add(device.mac);
+            return next;
+          });
+          return refreshSnapshot();
+        })
+        .catch((error: Error) => {
+          setState((prev) => ({
+            ...prev,
+            error: error.message,
+          }));
+        })
+        .finally(() => {
+          setPendingRegistrationMacs((prev) => {
+            const next = new Set(prev);
+            next.delete(device.mac);
+            return next;
+          });
+        });
+    },
+    [refreshSnapshot, registrationForms],
   );
 
   const filtered = useMemo(
-    () => computeFilteredData(state.snapshot, searchTerm.trim(), statusFilter, ownerFilter, typeFilter),
-    [state.snapshot, searchTerm, statusFilter, ownerFilter, typeFilter]
+    () =>
+      computeFilteredData(state.snapshot, searchTerm.trim(), statusFilter, ownerFilter, typeFilter),
+    [state.snapshot, searchTerm, statusFilter, ownerFilter, typeFilter],
   );
 
   const metadata = state.snapshot?.metadata;
@@ -396,14 +503,14 @@ export function FullConsole() {
         .catch((error: Error) => {
           setState((prev) => ({
             ...prev,
-            error: error.message
+            error: error.message,
           }));
         })
         .finally(() => {
           setPendingFilteredAction(false);
         });
     },
-    [filtered, refreshSnapshot]
+    [filtered, refreshSnapshot],
   );
 
   if (!isUnlocked) {
@@ -447,25 +554,38 @@ export function FullConsole() {
     <div className="space-y-10 pb-20">
       <header className="flex flex-wrap items-center justify-between gap-6">
         <div>
-          <h1 className="text-3xl font-semibold tracking-tight text-slate-50">Full device console</h1>
+          <h1 className="text-3xl font-semibold tracking-tight text-slate-50">
+            Full device console
+          </h1>
           <p className="mt-2 max-w-3xl text-sm text-slate-300">
-            Review every managed device, apply bulk network locks, and investigate unknown clients with advanced
-            filtering.
+            Review every managed device, apply bulk network locks, and investigate unknown clients
+            with advanced filtering.
           </p>
         </div>
-        <a
-          href="/"
-          className="inline-flex items-center gap-2 rounded-lg border border-slate-600/60 bg-slate-900/40 px-4 py-2 text-sm font-medium text-slate-200 transition hover:border-brand-blue/50 hover:text-slate-50"
-        >
-          ← All owners
-        </a>
+        <div className="flex flex-wrap gap-3">
+          <a
+            href="/"
+            className="inline-flex items-center gap-2 rounded-lg border border-slate-600/60 bg-slate-900/40 px-4 py-2 text-sm font-medium text-slate-200 transition hover:border-brand-blue/50 hover:text-slate-50"
+          >
+            ← All owners
+          </a>
+          <a
+            href="/register"
+            className="inline-flex items-center gap-2 rounded-lg border border-brand-blue/40 bg-brand-blue/20 px-4 py-2 text-sm font-semibold text-brand-blue transition hover:border-brand-blue hover:bg-brand-blue/30 hover:text-white"
+          >
+            Register a device
+          </a>
+        </div>
       </header>
 
       <section className="rounded-3xl border border-slate-700/40 bg-slate-900/40 p-6 shadow-card">
         <div className="flex flex-col gap-4">
           <div className="flex flex-wrap gap-4">
             <div className="flex flex-col gap-2">
-              <label htmlFor="console-owner" className="text-xs font-semibold uppercase tracking-[0.3em] text-slate-400">
+              <label
+                htmlFor="console-owner"
+                className="text-xs font-semibold uppercase tracking-[0.3em] text-slate-400"
+              >
                 Owner
               </label>
               <select
@@ -484,13 +604,18 @@ export function FullConsole() {
             </div>
 
             <div className="flex flex-col gap-2">
-              <label htmlFor="console-type" className="text-xs font-semibold uppercase tracking-[0.3em] text-slate-400">
+              <label
+                htmlFor="console-type"
+                className="text-xs font-semibold uppercase tracking-[0.3em] text-slate-400"
+              >
                 Type
               </label>
               <select
                 id="console-type"
                 value={typeFilter}
-                onChange={(event) => handleTypeFilterChange(event.target.value as DeviceType | "all")}
+                onChange={(event) =>
+                  handleTypeFilterChange(event.target.value as DeviceType | "all")
+                }
                 className="w-48 rounded-lg border border-slate-700/50 bg-slate-950/70 px-3 py-2 text-sm text-slate-100 focus:border-brand-blue focus:outline-none focus:ring-1 focus:ring-brand-blue"
               >
                 <option value="all">All types</option>
@@ -503,7 +628,10 @@ export function FullConsole() {
             </div>
 
             <div className="flex flex-col gap-2">
-              <label htmlFor="console-search" className="text-xs font-semibold uppercase tracking-[0.3em] text-slate-400">
+              <label
+                htmlFor="console-search"
+                className="text-xs font-semibold uppercase tracking-[0.3em] text-slate-400"
+              >
                 Search
               </label>
               <input
@@ -517,7 +645,10 @@ export function FullConsole() {
             </div>
 
             <div className="flex flex-col gap-2">
-              <label htmlFor="console-status" className="text-xs font-semibold uppercase tracking-[0.3em] text-slate-400">
+              <label
+                htmlFor="console-status"
+                className="text-xs font-semibold uppercase tracking-[0.3em] text-slate-400"
+              >
                 Status
               </label>
               <select
@@ -569,32 +700,44 @@ export function FullConsole() {
           <div className="mt-4 grid gap-5 md:grid-cols-3">
             <div>
               <p className="text-xs uppercase tracking-[0.3em] text-slate-400">Total devices</p>
-              <p className="mt-2 text-2xl font-semibold text-slate-50">{filtered.counts.totalDevices}</p>
+              <p className="mt-2 text-2xl font-semibold text-slate-50">
+                {filtered.counts.totalDevices}
+              </p>
               <p className="mt-1 text-xs text-slate-500">Registered across the network</p>
             </div>
             <div>
               <p className="text-xs uppercase tracking-[0.3em] text-slate-400">Locked devices</p>
-              <p className="mt-2 text-2xl font-semibold text-slate-50">{filtered.counts.lockedDevices}</p>
+              <p className="mt-2 text-2xl font-semibold text-slate-50">
+                {filtered.counts.lockedDevices}
+              </p>
               <p className="mt-1 text-xs text-slate-500">{inventoryLockRate}% of inventory</p>
             </div>
             <div>
               <p className="text-xs uppercase tracking-[0.3em] text-slate-400">Unknown vendors</p>
-              <p className="mt-2 text-2xl font-semibold text-slate-50">{filtered.counts.unknownVendors}</p>
+              <p className="mt-2 text-2xl font-semibold text-slate-50">
+                {filtered.counts.unknownVendors}
+              </p>
               <p className="mt-1 text-xs text-slate-500">Devices missing vendor metadata</p>
             </div>
             <div>
               <p className="text-xs uppercase tracking-[0.3em] text-slate-400">Filtered devices</p>
-              <p className="mt-2 text-2xl font-semibold text-slate-50">{filtered.counts.filteredDevices}</p>
+              <p className="mt-2 text-2xl font-semibold text-slate-50">
+                {filtered.counts.filteredDevices}
+              </p>
               <p className="mt-1 text-xs text-slate-500">Match current filters</p>
             </div>
             <div>
               <p className="text-xs uppercase tracking-[0.3em] text-slate-400">Filtered locked</p>
-              <p className="mt-2 text-2xl font-semibold text-slate-50">{filtered.counts.filteredLocked}</p>
+              <p className="mt-2 text-2xl font-semibold text-slate-50">
+                {filtered.counts.filteredLocked}
+              </p>
               <p className="mt-1 text-xs text-slate-500">Locks within filtered set</p>
             </div>
             <div>
               <p className="text-xs uppercase tracking-[0.3em] text-slate-400">Filtered unknown</p>
-              <p className="mt-2 text-2xl font-semibold text-slate-50">{filtered.counts.filteredUnknown}</p>
+              <p className="mt-2 text-2xl font-semibold text-slate-50">
+                {filtered.counts.filteredUnknown}
+              </p>
               <p className="mt-1 text-xs text-slate-500">Filtered devices without vendors</p>
             </div>
           </div>
@@ -615,7 +758,7 @@ export function FullConsole() {
           key={owner.key}
           className={cn(
             "space-y-4 rounded-3xl border border-slate-700/50 bg-slate-900/40 p-6 shadow-inner transition",
-            index > 0 ? "relative" : ""
+            index > 0 ? "relative" : "",
           )}
         >
           {index > 0 ? <div className="absolute inset-x-6 -top-4 h-px bg-slate-800/70" /> : null}
@@ -659,7 +802,7 @@ export function FullConsole() {
                       "mt-3 inline-flex items-center gap-1 rounded-full border px-3 py-1 text-xs font-medium",
                       device.locked
                         ? "border-status-locked/40 text-status-locked"
-                        : "border-status-unlocked/40 text-status-unlocked"
+                        : "border-status-unlocked/40 text-status-unlocked",
                     )}
                   >
                     {device.locked ? ICONS.locked : ICONS.unlocked}
@@ -669,7 +812,7 @@ export function FullConsole() {
 
                 <div className="mt-4 flex flex-wrap items-center justify-between gap-3 text-xs text-slate-400">
                   <div className="flex flex-wrap items-center gap-2 text-slate-300">
-                    <span className="capitalize text-sm text-slate-200">{device.type}</span>
+                    <span className="text-sm capitalize text-slate-200">{device.type}</span>
                     <span>•</span>
                     <span>{device.vendor ?? "Unknown vendor"}</span>
                   </div>
@@ -682,8 +825,8 @@ export function FullConsole() {
                     {pendingDeviceMacs.has(device.mac)
                       ? "Working…"
                       : device.locked
-                      ? "Unlock"
-                      : "Lock"}
+                        ? "Unlock"
+                        : "Lock"}
                   </Button>
                 </div>
               </article>
@@ -702,59 +845,210 @@ export function FullConsole() {
           <div className="flex items-center justify-between border-b border-slate-700/40 pb-4">
             <div>
               <p className="text-[11px] uppercase tracking-[0.35em] text-slate-500">Unregistered</p>
-              <h2 className="mt-1 text-xl font-semibold text-slate-50">Active unregistered devices</h2>
+              <h2 className="mt-1 text-xl font-semibold text-slate-50">
+                Active unregistered devices
+              </h2>
             </div>
           </div>
           <div className="mt-5 grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-            {filtered.unregistered.map((device) => (
-              <article
-                key={device.mac}
-                className="rounded-2xl border border-slate-700/40 bg-slate-900/50 p-4 transition hover:border-brand-blue/50 hover:bg-slate-900/70"
-              >
-                <div>
-                  <h3 className="text-base font-semibold text-slate-50">{device.name}</h3>
-                  <p className="text-xs text-slate-500">{device.mac}</p>
-                  <span
-                    className={cn(
-                      "mt-3 inline-flex items-center gap-1 rounded-full border px-3 py-1 text-xs font-medium",
-                      device.locked
-                        ? "border-status-locked/40 text-status-locked"
-                        : "border-status-unlocked/40 text-status-unlocked"
-                    )}
-                  >
-                    {device.locked ? ICONS.locked : ICONS.unlocked}
-                    {device.locked ? "Locked" : "Unlocked"}
-                  </span>
-                </div>
+            {filtered.unregistered.map((device) => {
+              const defaults: RegistrationFormValues = {
+                ownerKey: "",
+                name: device.name,
+                type: "unknown",
+              };
+              const form = registrationForms[device.mac] ?? defaults;
+              const isRegistering = pendingRegistrationMacs.has(device.mac);
+              const isRegistered = registrationSuccess.has(device.mac);
+              const ownerMatch =
+                form.ownerKey && ownerOptions.find((owner) => owner.key === form.ownerKey);
+              const vendorName = device.vendor ?? "Unknown vendor";
+              const isUnknownVendor = vendorName.toLowerCase() === "unknown vendor";
 
-                <dl className="mt-3 grid gap-2 text-xs text-slate-400">
-                  <div className="flex justify-between gap-3">
-                    <dt className="text-slate-500">IP</dt>
-                    <dd className="text-slate-200">{device.ip ?? "Unknown"}</dd>
-                  </div>
-                  <div className="flex justify-between gap-3">
-                    <dt className="text-slate-500">Vendor</dt>
-                    <dd className="text-slate-200">{device.vendor ?? "Unknown vendor"}</dd>
-                  </div>
-                  {device.lastSeen ? (
-                    <div className="flex justify-between gap-3">
-                      <dt className="text-slate-500">Last seen</dt>
-                      <dd className="text-slate-200">{formatTimestamp(device.lastSeen)}</dd>
+              return (
+                <article
+                  key={device.mac}
+                  className="hover:shadow-card-xl rounded-2xl border border-slate-700/40 bg-gradient-to-br from-slate-900/80 via-slate-900/60 to-slate-950/90 p-5 shadow-inner transition hover:border-brand-blue/50"
+                >
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="space-y-1">
+                      <h3 className="text-lg font-semibold text-slate-50">{device.name}</h3>
+                      <p className="font-mono text-xs uppercase tracking-[0.25em] text-slate-500">
+                        {device.mac}
+                      </p>
                     </div>
-                  ) : null}
-                </dl>
+                    <div className="flex flex-col items-end gap-2">
+                      <span
+                        className={cn(
+                          "inline-flex items-center gap-2 rounded-full border px-3 py-1 text-xs font-semibold tracking-wide",
+                          device.locked
+                            ? "border-status-locked/40 text-status-locked"
+                            : "border-status-unlocked/40 text-status-unlocked",
+                        )}
+                      >
+                        {device.locked ? ICONS.locked : ICONS.unlocked}
+                        {device.locked ? "Locked" : "Unlocked"}
+                      </span>
+                      <Button
+                        size="sm"
+                        variant={device.locked ? "secondary" : "destructive"}
+                        onClick={() => handleToggleUnregistered(device)}
+                        disabled={state.refreshing}
+                        className="min-w-[88px]"
+                      >
+                        {device.locked ? "Unlock" : "Lock"}
+                      </Button>
+                    </div>
+                  </div>
 
-                <div className="mt-4 flex justify-end">
-                  <Button
-                    size="sm"
-                    variant={device.locked ? "secondary" : "destructive"}
-                    onClick={() => handleToggleUnregistered(device)}
-                  >
-                    {device.locked ? "Unlock" : "Lock"}
-                  </Button>
-                </div>
-              </article>
-            ))}
+                  <dl className="mt-4 grid grid-cols-2 gap-y-2 text-sm text-slate-200">
+                    <div>
+                      <dt className="text-xs uppercase tracking-[0.3em] text-slate-500">IP</dt>
+                      <dd className="mt-1 font-medium">{device.ip ?? "Unknown"}</dd>
+                    </div>
+                    <div>
+                      <dt className="text-xs uppercase tracking-[0.3em] text-slate-500">
+                        Last seen
+                      </dt>
+                      <dd className="mt-1 font-medium">
+                        {device.lastSeen ? formatTimestamp(device.lastSeen) : "Unavailable"}
+                      </dd>
+                    </div>
+                    <div className="col-span-2">
+                      <dt className="text-xs uppercase tracking-[0.3em] text-slate-500">Vendor</dt>
+                      <dd className="mt-1 flex items-center gap-2 font-medium">
+                        {isUnknownVendor ? (
+                          <span className="inline-flex items-center gap-1 rounded-full border border-amber-500/60 bg-amber-500/10 px-2 py-0.5 text-[11px] font-semibold uppercase tracking-wide text-amber-300">
+                            {ICONS.alert}
+                            Unknown vendor
+                          </span>
+                        ) : (
+                          vendorName
+                        )}
+                      </dd>
+                    </div>
+                  </dl>
+
+                  <div className="mt-6 space-y-4 rounded-2xl border border-slate-800/60 bg-slate-950/40 p-4">
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <h4 className="text-sm font-semibold text-slate-200">
+                          Register this device
+                        </h4>
+                        <p className="text-xs text-slate-400">
+                          Assign an owner to move the client into the managed inventory.
+                        </p>
+                      </div>
+                      {isRegistered ? (
+                        <span className="inline-flex items-center gap-1 rounded-full bg-emerald-500/15 px-3 py-1 text-xs font-semibold text-emerald-300">
+                          {ICONS.unlocked}
+                          Registered
+                        </span>
+                      ) : null}
+                    </div>
+
+                    <div className="space-y-3">
+                      <label className="flex flex-col gap-1 text-sm text-slate-300">
+                        <span>Device name</span>
+                        <span className="text-xs text-slate-500">
+                          Optional override – defaults to the MAC address.
+                        </span>
+                      </label>
+                      <input
+                        type="text"
+                        value={form.name}
+                        onChange={(event) =>
+                          handleRegistrationChange(
+                            device.mac,
+                            { name: event.target.value },
+                            defaults,
+                          )
+                        }
+                        disabled={isRegistering || state.refreshing}
+                        placeholder={device.mac}
+                        className="w-full rounded-lg border border-slate-700/50 bg-slate-950/70 px-3 py-2 text-sm text-slate-100 focus:border-brand-blue focus:outline-none focus:ring-1 focus:ring-brand-blue"
+                      />
+                    </div>
+
+                    <div className="grid gap-3 sm:grid-cols-2">
+                      <div className="flex flex-col gap-1">
+                        <div className="flex items-center justify-between">
+                          <span className="text-sm text-slate-300">Assign owner</span>
+                          {ownerMatch ? (
+                            <span className="inline-flex items-center gap-2 rounded-full bg-slate-800/70 px-2.5 py-1 text-[11px] font-medium uppercase tracking-wider text-slate-200">
+                              <span className="flex size-5 items-center justify-center rounded-full bg-brand-blue/20 text-[10px] font-semibold text-brand-blue/80">
+                                {ownerMatch.displayName.slice(0, 1)}
+                              </span>
+                              {ownerMatch.displayName}
+                            </span>
+                          ) : null}
+                        </div>
+                        <select
+                          value={form.ownerKey}
+                          onChange={(event) =>
+                            handleRegistrationChange(
+                              device.mac,
+                              { ownerKey: event.target.value },
+                              defaults,
+                            )
+                          }
+                          disabled={isRegistering || state.refreshing}
+                          className="w-full rounded-lg border border-slate-700/50 bg-slate-950/70 px-3 py-2 text-sm text-slate-100 focus:border-brand-blue focus:outline-none focus:ring-1 focus:ring-brand-blue"
+                        >
+                          <option value="">Select owner</option>
+                          {ownerOptions.map((owner) => (
+                            <option key={owner.key} value={owner.key}>
+                              {owner.displayName}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+                      <div className="flex flex-col gap-1">
+                        <span className="text-sm text-slate-300">Device type</span>
+                        <select
+                          value={form.type}
+                          onChange={(event) =>
+                            handleRegistrationChange(
+                              device.mac,
+                              { type: event.target.value },
+                              defaults,
+                            )
+                          }
+                          disabled={isRegistering || state.refreshing}
+                          className="w-full rounded-lg border border-slate-700/50 bg-slate-950/70 px-3 py-2 text-sm capitalize text-slate-100 focus:border-brand-blue focus:outline-none focus:ring-1 focus:ring-brand-blue"
+                        >
+                          {REGISTRATION_TYPES.map((type) => (
+                            <option key={type} value={type}>
+                              {type}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+                    </div>
+
+                    <div className="flex flex-wrap items-center justify-between gap-3">
+                      <Button
+                        size="sm"
+                        onClick={() => handleRegisterDevice(device)}
+                        disabled={
+                          !form.ownerKey || isRegistering || state.refreshing || isRegistered
+                        }
+                        className="min-w-[140px]"
+                      >
+                        {isRegistering
+                          ? "Registering…"
+                          : isRegistered
+                            ? "Registered"
+                            : "Register to owner"}
+                      </Button>
+                      <p className="text-xs text-slate-500">
+                        Registration removes the device from this list and applies owner policies.
+                      </p>
+                    </div>
+                  </div>
+                </article>
+              );
+            })}
           </div>
         </section>
       ) : null}

@@ -1,5 +1,12 @@
 import rawSnapshot from "@/data/mock-config.json";
-import type { DashboardSnapshot, Device, OwnerSummary, UnregisteredDevice } from "@/lib/domain/models";
+import type {
+  DashboardSnapshot,
+  Device,
+  DeviceRegistrationPayload,
+  OwnerSummary,
+  SessionIdentity,
+  UnregisteredDevice,
+} from "@/lib/domain/models";
 import type { LockControllerPort } from "@/lib/ports/LockControllerPort";
 
 const snapshotData = rawSnapshot as DashboardSnapshot;
@@ -15,6 +22,26 @@ export class MockLockControllerAdapter implements LockControllerPort {
   constructor() {
     this.snapshot = deepCloneSnapshot();
     this.ownerPins = new Map(snapshotData.owners.map((owner) => [owner.key, owner.pin ?? ""]));
+  }
+
+  private normalizeDeviceType(input?: string): Device["type"] {
+    if (!input) {
+      return "unknown";
+    }
+    const normalized = input.toLowerCase();
+    const allowed: Device["type"][] = [
+      "computer",
+      "tv",
+      "switch",
+      "streaming",
+      "console",
+      "phone",
+      "tablet",
+      "unknown",
+    ];
+    return allowed.includes(normalized as Device["type"])
+      ? (normalized as Device["type"])
+      : "unknown";
   }
 
   loadSnapshot(): Promise<DashboardSnapshot> {
@@ -62,12 +89,68 @@ export class MockLockControllerAdapter implements LockControllerPort {
     return Promise.resolve(this.ownerPins.get(ownerKey) === pin);
   }
 
+  registerDevice(ownerKey: string, payload: DeviceRegistrationPayload): Promise<Device> {
+    const mac = payload.mac.toLowerCase();
+    const ownerKeyNormalized = ownerKey.toLowerCase();
+    const type = this.normalizeDeviceType(payload.type);
+    const name = payload.name?.trim() || payload.mac;
+
+    let ownerFound = false;
+    this.snapshot.owners = this.snapshot.owners.map((owner) => {
+      const filteredDevices = owner.devices.filter((device) => device.mac !== mac);
+      if (owner.key === ownerKeyNormalized) {
+        ownerFound = true;
+        const registeredDevice: Device = {
+          name,
+          mac,
+          type,
+          vendor: undefined,
+          locked: false,
+        };
+        return {
+          ...owner,
+          devices: [...filteredDevices, registeredDevice].sort((a, b) =>
+            a.name.localeCompare(b.name),
+          ),
+        };
+      }
+      return {
+        ...owner,
+        devices: filteredDevices,
+      };
+    });
+
+    if (!ownerFound) {
+      throw new Error(`Owner ${ownerKey} not found in mock data.`);
+    }
+
+    this.snapshot.unregistered = (this.snapshot.unregistered ?? []).filter(
+      (device) => device.mac !== mac,
+    );
+
+    return Promise.resolve({
+      name,
+      mac,
+      type,
+      vendor: undefined,
+      locked: false,
+    });
+  }
+
+  whoAmI(): Promise<SessionIdentity> {
+    return Promise.resolve({
+      ip: undefined,
+      forwardedFor: [],
+      probableClients: [],
+    });
+  }
+
   private updateDeviceLocks(devices: Device[], locked: boolean) {
     const macs = new Set(devices.map((d) => d.mac));
     this.snapshot.owners = this.snapshot.owners.map((owner) => ({
       ...owner,
       devices: owner.devices.map((device) =>
-        macs.has(device.mac) ? { ...device, locked } : device
+        macs.has(device.mac) ? { ...device, locked } : device,
       ),
     }));
   }
@@ -79,7 +162,7 @@ export class MockLockControllerAdapter implements LockControllerPort {
             ...owner,
             devices: owner.devices.map((device) => ({ ...device, locked })),
           }
-        : owner
+        : owner,
     );
   }
 }

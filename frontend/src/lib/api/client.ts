@@ -5,13 +5,16 @@ import type {
   ApiScheduleListResponse,
   DashboardSummary,
   DeviceActionRequest,
+  DeviceRegistrationRequest,
   DeviceListResponse,
+  DeviceStatus,
   DeviceTarget,
+  WhoAmIResponse,
   OwnerLockRequest,
   OwnersResponse,
   SingleClientLockRequest,
   UnregisteredClientsResponse,
-  VerifyPinResponse
+  VerifyPinResponse,
 } from "@/lib/api/types";
 
 type HttpMethod = "GET" | "POST" | "DELETE";
@@ -30,18 +33,18 @@ export class UnifiApiClient {
 
   private async request<TResponse, TBody = unknown>(
     path: string,
-    { method = "GET", body, signal }: RequestOptions<TBody> = {}
+    { method = "GET", body, signal }: RequestOptions<TBody> = {},
   ): Promise<TResponse> {
     const url = path.startsWith("http") ? path : `${this.baseUrl}${path}`;
     const headers = new Headers({
-      "Content-Type": "application/json"
+      "Content-Type": "application/json",
     });
 
     const response = await fetch(url, {
       method,
       headers,
       signal,
-      body: body ? JSON.stringify(body) : undefined
+      body: body ? JSON.stringify(body) : undefined,
     });
 
     if (!response.ok) {
@@ -89,7 +92,7 @@ export class UnifiApiClient {
   async lockDevices(targets: DeviceTarget[], unlock = false): Promise<void> {
     const payload: DeviceActionRequest = {
       targets,
-      unlock
+      unlock,
     };
     await this.request("/api/devices/lock", { method: "POST", body: payload });
   }
@@ -102,7 +105,7 @@ export class UnifiApiClient {
   async lockUnregisteredClient(target: DeviceTarget, unlock = false): Promise<void> {
     const payload: SingleClientLockRequest = {
       ...target,
-      unlock
+      unlock,
     };
     await this.request("/api/clients/unregistered/lock", { method: "POST", body: payload });
   }
@@ -112,30 +115,50 @@ export class UnifiApiClient {
       `/api/owners/${ownerKey}/verify-pin`,
       {
         method: "POST",
-        body: { pin }
-      }
+        body: { pin },
+      },
     );
     return response.valid;
+  }
+
+  async registerOwnerDevice(
+    ownerKey: string,
+    payload: DeviceRegistrationRequest,
+  ): Promise<DeviceStatus> {
+    return this.request<DeviceStatus, DeviceRegistrationRequest>(
+      `/api/owners/${ownerKey}/devices`,
+      {
+        method: "POST",
+        body: payload,
+      },
+    );
+  }
+
+  async whoAmI(signal?: AbortSignal): Promise<WhoAmIResponse> {
+    return this.request<WhoAmIResponse>("/api/session/whoami", { signal });
   }
 
   async listSchedules(signal?: AbortSignal): Promise<ApiScheduleListResponse> {
     return this.request<ApiScheduleListResponse>("/api/schedules", { signal });
   }
 
-  async getOwnerSchedules(ownerKey: string, signal?: AbortSignal): Promise<ApiOwnerScheduleResponse> {
+  async getOwnerSchedules(
+    ownerKey: string,
+    signal?: AbortSignal,
+  ): Promise<ApiOwnerScheduleResponse> {
     return this.request<ApiOwnerScheduleResponse>(`/api/owners/${ownerKey}/schedules`, { signal });
   }
 
   async createSchedule(payload: ApiScheduleCreateRequest): Promise<ApiDeviceSchedule> {
     return this.request<ApiDeviceSchedule, ApiScheduleCreateRequest>("/api/schedules", {
       method: "POST",
-      body: payload
+      body: payload,
     });
   }
 
   async deleteSchedule(scheduleId: string): Promise<void> {
     await this.request(`/api/schedules/${scheduleId}`, {
-      method: "DELETE"
+      method: "DELETE",
     });
   }
 }

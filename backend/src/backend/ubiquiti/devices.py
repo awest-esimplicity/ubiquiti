@@ -37,6 +37,9 @@ class DeviceRepository(Protocol):
     def get_by_mac(self, mac: str | None) -> Device | None:
         ...
 
+    def register(self, device: Device) -> Device:
+        ...
+
 
 class InMemoryDeviceRepository(DeviceRepository):
     """Adapter that serves devices from an in-memory catalog."""
@@ -61,6 +64,35 @@ class InMemoryDeviceRepository(DeviceRepository):
         if not mac:
             return None
         return self._by_mac.get(mac.lower())
+
+    def register(self, device: Device) -> Device:
+        mac = device.mac.lower()
+        owner = device.owner.lower()
+        normalized = Device(
+            name=device.name.strip(),
+            mac=mac,
+            type=device.type.strip().lower(),
+            owner=owner,
+        )
+
+        existing = self._by_mac.get(mac)
+        if existing:
+            try:
+                owner_devices = self._by_owner.get(existing.owner, [])
+                if existing in owner_devices:
+                    owner_devices.remove(existing)
+            except ValueError:  # pragma: no cover - defensive
+                pass
+            for index, current in enumerate(self._devices):
+                if current.mac.lower() == mac:
+                    self._devices[index] = normalized
+                    break
+        else:
+            self._devices.append(normalized)
+
+        self._by_mac[mac] = normalized
+        self._by_owner.setdefault(owner, []).append(normalized)
+        return normalized
 
 
 class SQLAlchemyDeviceRepository(DeviceRepository):
@@ -121,6 +153,35 @@ class SQLAlchemyDeviceRepository(DeviceRepository):
                 type=row.device_type,
                 owner=row.owner_key,
             )
+
+    def register(self, device: Device) -> Device:
+        mac = device.mac.lower()
+        owner = device.owner.lower()
+        device_type = device.type.strip().lower()
+        name = device.name.strip()
+
+        with self._session_factory() as session:
+            instance = (
+                session.execute(
+                    select(DeviceModel).where(DeviceModel.mac == mac)
+                )
+                .scalars()
+                .first()
+            )
+            if instance is None:
+                instance = DeviceModel(
+                    name=name,
+                    mac=mac,
+                    device_type=device_type,
+                    owner_key=owner,
+                )
+                session.add(instance)
+            else:
+                instance.name = name
+                instance.device_type = device_type
+                instance.owner_key = owner
+            session.commit()
+        return Device(name=name, mac=mac, type=device_type, owner=owner)
 
 
 DEVICES: list[Device] = [

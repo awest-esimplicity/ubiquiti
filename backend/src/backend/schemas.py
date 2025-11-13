@@ -21,6 +21,12 @@ class DeviceListResponse(BaseModel):
     devices: list[DeviceStatus]
 
 
+class DeviceRegistrationRequest(BaseModel):
+    name: str | None = None
+    type: str | None = None
+    mac: str = Field(..., min_length=1)
+
+
 class DashboardSummary(BaseModel):
     total_devices: int = Field(..., ge=0)
     locked_devices: int = Field(..., ge=0)
@@ -115,6 +121,12 @@ def _to_camel(string: str) -> str:
 
 class CamelModel(BaseModel):
     model_config = ConfigDict(alias_generator=_to_camel, populate_by_name=True)
+
+
+class WhoAmIResponse(CamelModel):
+    ip: str | None = None
+    forwarded_for: list[str] = Field(default_factory=list)
+    probable_clients: list[UnregisteredClient] = Field(default_factory=list)
 
 
 class ScheduleWindow(CamelModel):

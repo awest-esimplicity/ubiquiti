@@ -1,4 +1,11 @@
-import type { DashboardSnapshot, OwnerSummary, Device, UnregisteredDevice } from "@/lib/domain/models";
+import type {
+  DashboardSnapshot,
+  OwnerSummary,
+  Device,
+  UnregisteredDevice,
+  DeviceRegistrationPayload,
+  SessionIdentity,
+} from "@/lib/domain/models";
 
 export interface LockControllerPort {
   loadSnapshot(): Promise<DashboardSnapshot>;
@@ -11,4 +18,6 @@ export interface LockControllerPort {
   refresh(): Promise<DashboardSnapshot>;
   loadUnregistered(): Promise<UnregisteredDevice[]>;
   verifyOwnerPin(ownerKey: string, pin: string): Promise<boolean>;
+  registerDevice(ownerKey: string, payload: DeviceRegistrationPayload): Promise<Device>;
+  whoAmI(): Promise<SessionIdentity>;
 }

@@ -11,7 +11,10 @@ RUN npm install
 COPY frontend/ ./
 RUN npm run build
 
-FROM python:3.13-slim AS backend
+# ----------------------------------------------------------------------
+# Backend build stage: install Python deps (with build tooling available)
+# ----------------------------------------------------------------------
+FROM python:3.13-slim AS backend-builder
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
@@ -21,22 +24,37 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 
 WORKDIR /app
 
-RUN apt-get update && apt-get install -y --no-install-recommends \
-        build-essential \
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends build-essential \
     && rm -rf /var/lib/apt/lists/*
 
-COPY backend/pyproject.toml backend/uv.lock backend/README.md ./
+COPY backend/pyproject.toml backend/uv.lock ./
+RUN pip install uv==0.4.18
+
 COPY backend/src ./src
-COPY backend/tests ./tests
-RUN mkdir -p frontend/dist
+RUN uv sync --frozen --project .
+
+# ----------------------------------------------------------------------
+# Runtime image
+# ----------------------------------------------------------------------
+FROM python:3.13-slim AS runtime
+
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    UV_PROJECT_ENV=/app/.venv \
+    PATH="/app/.venv/bin:${PATH}" \
+    UBIQUITI_DB_URL=""
+
+WORKDIR /app
+
+COPY --from=backend-builder /app/.venv /app/.venv
+COPY backend/src ./src
+COPY backend/pyproject.toml backend/uv.lock ./ 
+COPY backend/README.md ./README.md
 COPY streamlit_app.py ./streamlit_app.py
 COPY devices.txt ./devices.txt
+RUN mkdir -p frontend/dist
 COPY --from=frontend-builder /app/frontend/dist ./frontend/dist
-
-RUN pip install uv==0.4.18 && uv sync --frozen --project .
-
-ENV PATH="/app/.venv/bin:${PATH}" \
-    UBIQUITI_DB_URL=""
 
 EXPOSE 8000
 

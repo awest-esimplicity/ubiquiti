@@ -1,4 +1,11 @@
-import type { DashboardSnapshot, Device, OwnerSummary, UnregisteredDevice } from "@/lib/domain/models";
+import type {
+  DashboardSnapshot,
+  Device,
+  DeviceRegistrationPayload,
+  OwnerSummary,
+  SessionIdentity,
+  UnregisteredDevice,
+} from "@/lib/domain/models";
 import type { LockControllerPort } from "@/lib/ports/LockControllerPort";
 
 export class LockControllerService {
@@ -42,5 +49,13 @@ export class LockControllerService {
 
   async verifyOwnerPin(ownerKey: string, pin: string): Promise<boolean> {
     return this.port.verifyOwnerPin(ownerKey, pin);
+  }
+
+  async registerDevice(ownerKey: string, payload: DeviceRegistrationPayload): Promise<Device> {
+    return this.port.registerDevice(ownerKey, payload);
+  }
+
+  async whoAmI(): Promise<SessionIdentity> {
+    return this.port.whoAmI();
   }
 }

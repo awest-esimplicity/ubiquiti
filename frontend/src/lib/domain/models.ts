@@ -1,4 +1,12 @@
-export type DeviceType = "computer" | "tv" | "switch" | "streaming" | "console" | "phone" | "tablet" | "unknown";
+export type DeviceType =
+  | "computer"
+  | "tv"
+  | "switch"
+  | "streaming"
+  | "console"
+  | "phone"
+  | "tablet"
+  | "unknown";
 
 export interface Device {
   name: string;
@@ -6,6 +14,12 @@ export interface Device {
   mac: string;
   vendor?: string;
   locked: boolean;
+}
+
+export interface DeviceRegistrationPayload {
+  mac: string;
+  name?: string;
+  type?: string;
 }
 
 export interface OwnerSummary {
@@ -35,4 +49,10 @@ export interface DashboardSnapshot {
   owners: OwnerSummary[];
   unregistered: UnregisteredDevice[];
   metadata: DashboardMetadata;
+}
+
+export interface SessionIdentity {
+  ip?: string | null;
+  forwardedFor: string[];
+  probableClients: UnregisteredDevice[];
 }

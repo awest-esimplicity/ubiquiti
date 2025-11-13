@@ -8,6 +8,8 @@ export default defineConfig({
     environment: "jsdom",
     globals: true,
     setupFiles: ["./src/test/setup.ts"],
+    include: ["src/**/*.{test,spec}.{ts,tsx}", "tests/**/*.{test,spec}.{ts,tsx}"],
+    exclude: ["tests/e2e/**"],
     coverage: {
       reporter: ["text", "html"],
       reportsDirectory: "coverage",
@@ -15,8 +17,8 @@ export default defineConfig({
         lines: 60,
         functions: 60,
         branches: 50,
-        statements: 60
-      }
-    }
-  }
+        statements: 60,
+      },
+    },
+  },
 });

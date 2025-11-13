@@ -110,6 +110,52 @@ def get_registered_device_records() -> list[DeviceRecord]:
         return records
 
 
+def register_device_for_owner(
+    owner_key: str,
+    *,
+    mac: str,
+    name: str | None = None,
+    device_type: str | None = None,
+) -> DeviceRecord:
+    """Register or update a device under the specified owner."""
+    device_repo = get_device_repository()
+    existing = device_repo.get_by_mac(mac)
+
+    mac_normalized = mac.strip().lower()
+    owner_normalized = owner_key.strip().lower()
+
+    name_value = (name or (existing.name if existing else None) or mac_normalized).strip()
+    type_value = (
+        device_type
+        or (existing.type if existing else None)
+        or "unknown"
+    ).strip()
+    if not type_value:
+        type_value = "unknown"
+
+    device = Device(
+        name=name_value,
+        mac=mac_normalized,
+        type=type_value.lower(),
+        owner=owner_normalized,
+    )
+    saved = device_repo.register(device)
+
+    with locker_context() as (firewall, locker):
+        rules = firewall.list_rules()
+        locked = locker.is_device_locked(saved, rules)
+
+    vendor = lookup_mac_vendor(saved.mac)
+    return {
+        "name": saved.name,
+        "owner": saved.owner,
+        "type": saved.type,
+        "mac": saved.mac,
+        "locked": locked,
+        "vendor": vendor,
+    }
+
+
 def summarize_owner_records(records: list[DeviceRecord]) -> list[OwnerSummaryRecord]:
     """Aggregate device counts by owner."""
     owner_repo = get_owner_repository()
