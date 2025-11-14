@@ -8,7 +8,7 @@ import { cn } from "@/lib/utils/cn";
 import { formatTimestamp } from "@/lib/utils/date";
 
 interface DeviceDetailViewProps {
-  mac: string;
+  mac?: string;
 }
 
 const LOOKBACK_OPTIONS: Array<{ label: string; value: number }> = [
@@ -45,18 +45,38 @@ export function DeviceDetailView({ mac }: DeviceDetailViewProps) {
   const [loading, setLoading] = useState<boolean>(false);
   const [error, setError] = useState<string>();
   const [lookback, setLookback] = useState<number>(60);
+  const [currentMac, setCurrentMac] = useState<string>(() => mac?.trim() ?? "");
+
+  useEffect(() => {
+    if (mac && mac.trim() !== currentMac) {
+      setCurrentMac(mac.trim());
+    }
+  }, [mac, currentMac]);
+
+  useEffect(() => {
+    if (currentMac || typeof window === "undefined") {
+      return;
+    }
+    const params = new URLSearchParams(window.location.search);
+    const urlMac = params.get("mac");
+    if (urlMac) {
+      setCurrentMac(urlMac.trim());
+    }
+  }, [currentMac]);
 
   const loadDetail = useCallback(
     (signal?: AbortSignal) => {
-      if (!mac) {
-        setError("Device MAC address is missing.");
+      const targetMac = currentMac.trim();
+      if (!targetMac) {
+        setError("Select a device to view details.");
         setDetail(null);
+        setLoading(false);
         return;
       }
       setLoading(true);
       setError(undefined);
       lockControllerService
-        .getDeviceDetail(mac, lookback)
+        .getDeviceDetail(targetMac, lookback)
         .then((response) => {
           if (signal?.aborted) {
             return;
@@ -74,14 +94,14 @@ export function DeviceDetailView({ mac }: DeviceDetailViewProps) {
           setLoading(false);
         });
     },
-    [lookback, mac],
+    [currentMac, lookback],
   );
 
   useEffect(() => {
     const controller = new AbortController();
     loadDetail(controller.signal);
     return () => controller.abort();
-  }, [loadDetail]);
+  }, [loadDetail, currentMac]);
 
   const trafficSamples = useMemo<DeviceTrafficSample[]>(() => {
     if (!detail?.traffic?.samples) {
@@ -107,8 +127,12 @@ export function DeviceDetailView({ mac }: DeviceDetailViewProps) {
             <span>•</span>
             <span>{detail?.type ?? "Device"}</span>
           </div>
-          <h1 className="text-3xl font-semibold text-slate-100">{detail?.name ?? mac}</h1>
-          <p className="font-mono text-xs uppercase tracking-[0.25em] text-slate-500">{mac}</p>
+          <h1 className="text-3xl font-semibold text-slate-100">
+            {detail?.name ?? (currentMac || "Select a device")}
+          </h1>
+          <p className="font-mono text-xs uppercase tracking-[0.25em] text-slate-500">
+            {currentMac || "—"}
+          </p>
           {detail?.vendor ? (
             <p className="text-sm text-slate-400">Vendor: {detail.vendor}</p>
           ) : null}

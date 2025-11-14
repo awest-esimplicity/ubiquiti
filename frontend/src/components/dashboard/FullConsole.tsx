@@ -840,7 +840,7 @@ export function FullConsole() {
                   </div>
                   <div className="flex items-center gap-2">
                     <a
-                      href={`/devices/${encodeURIComponent(device.mac)}`}
+                      href={`/devices?mac=${encodeURIComponent(device.mac)}`}
                       className={cn(
                         buttonVariants({ variant: "ghost", size: "sm" }),
                         "px-2 text-xs text-slate-300 hover:text-white",

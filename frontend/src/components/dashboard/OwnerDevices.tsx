@@ -314,7 +314,7 @@ function DeviceCard({ device, isPending, onToggle }: DeviceCardProps) {
       </div>
       <div className="mt-4 flex items-center justify-between gap-3">
         <a
-          href={`/devices/${encodeURIComponent(device.mac)}`}
+          href={`/devices?mac=${encodeURIComponent(device.mac)}`}
           className={cn(
             buttonVariants({ variant: "ghost", size: "sm" }),
             "px-2 text-xs text-slate-300 hover:text-white",
