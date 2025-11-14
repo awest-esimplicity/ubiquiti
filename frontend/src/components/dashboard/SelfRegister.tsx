@@ -82,6 +82,10 @@ export function SelfRegisterDevice() {
   const [selectedProbableMac, setSelectedProbableMac] = useState<string | null>(null);
   const [identityError, setIdentityError] = useState<string | undefined>();
   const [availableTypes, setAvailableTypes] = useState<string[]>(FALLBACK_DEVICE_TYPES);
+  const [unregisteredDevices, setUnregisteredDevices] = useState<UnregisteredDevice[]>([]);
+  const [loadingUnregistered, setLoadingUnregistered] = useState(false);
+  const [unregisteredError, setUnregisteredError] = useState<string | undefined>();
+  const [pendingLockMacs, setPendingLockMacs] = useState<Set<string>>(new Set());
 
   useEffect(() => {
     let cancelled = false;
@@ -154,6 +158,34 @@ export function SelfRegisterDevice() {
 
   useEffect(() => {
     let cancelled = false;
+    setLoadingUnregistered(true);
+    void lockControllerService
+      .loadUnregistered()
+      .then((devices) => {
+        if (cancelled) {
+          return;
+        }
+        setUnregisteredDevices(devices);
+        setUnregisteredError(undefined);
+      })
+      .catch((error: Error) => {
+        if (cancelled) {
+          return;
+        }
+        setUnregisteredError(error.message);
+      })
+      .finally(() => {
+        if (!cancelled) {
+          setLoadingUnregistered(false);
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
     void adminService
       .listDeviceTypes()
       .then((types) => {
@@ -210,6 +242,9 @@ export function SelfRegisterDevice() {
       setProbableClients((prev) =>
         prev.filter((client) => client.mac.toLowerCase() !== payload.mac.toLowerCase()),
       );
+      setUnregisteredDevices((prev) =>
+        prev.filter((device) => device.mac.toLowerCase() !== payload.mac.toLowerCase()),
+      );
       setSelectedProbableMac(null);
       setMacAddress("");
     } catch (error) {
@@ -222,6 +257,45 @@ export function SelfRegisterDevice() {
     setSelectedProbableMac(client.mac);
     setMacAddress(client.mac.toUpperCase());
     setDeviceName((current) => (current && current !== "" ? current : client.name));
+  };
+
+  const handlePrefillUnregistered = (device: UnregisteredDevice) => {
+    setMacAddress(device.mac.toUpperCase());
+    setDeviceName(device.name);
+    setSelectedProbableMac(device.mac);
+    setSubmitState({ status: "idle", message: "Populated fields from active unregistered device." });
+  };
+
+  const handleToggleUnregisteredLock = async (device: UnregisteredDevice) => {
+    setPendingLockMacs((prev) => {
+      const next = new Set(prev);
+      next.add(device.mac);
+      return next;
+    });
+    try {
+      await lockControllerService.setUnregisteredLock(device, device.locked);
+      setUnregisteredDevices((prev) =>
+        prev.map((entry) =>
+          entry.mac.toLowerCase() === device.mac.toLowerCase()
+            ? { ...entry, locked: !device.locked }
+            : entry,
+        ),
+      );
+      setSubmitState({
+        status: "idle",
+        message: `Device ${device.locked ? "unlocked" : "locked"} successfully.`,
+      });
+    } catch (error) {
+      const message =
+        error instanceof Error ? error.message : "Unable to update device lock state.";
+      setSubmitState({ status: "error", message });
+    } finally {
+      setPendingLockMacs((prev) => {
+        const next = new Set(prev);
+        next.delete(device.mac);
+        return next;
+      });
+    }
   };
 
   return (
@@ -371,8 +445,110 @@ export function SelfRegisterDevice() {
               );
             })}
           </div>
-        </section>
-      ) : null}
+      </section>
+    ) : null}
+
+      <section className="space-y-4 rounded-2xl border border-slate-800/60 bg-slate-900/60 p-5">
+        <header className="flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <h2 className="text-sm font-semibold text-slate-200">Active unregistered devices</h2>
+            <p className="text-xs text-slate-400">
+              These devices are currently on the network without an assigned owner.
+            </p>
+          </div>
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={() => {
+              setLoadingUnregistered(true);
+              void lockControllerService
+                .loadUnregistered()
+                .then((devices) => {
+                  setUnregisteredDevices(devices);
+                  setUnregisteredError(undefined);
+                })
+                .catch((error: Error) => {
+                  setUnregisteredError(error.message);
+                })
+                .finally(() => setLoadingUnregistered(false));
+            }}
+            className="border border-transparent px-3 py-1 text-xs uppercase tracking-[0.25em] text-slate-300 hover:border-slate-700"
+          >
+            Refresh
+          </Button>
+        </header>
+        {unregisteredError ? (
+          <p className="rounded-xl border border-status-locked/40 bg-status-locked/10 px-4 py-3 text-sm text-status-locked">
+            {unregisteredError}
+          </p>
+        ) : null}
+        {loadingUnregistered ? (
+          <p className="text-sm text-slate-400">Loading active clients…</p>
+        ) : unregisteredDevices.length === 0 ? (
+          <p className="text-sm text-slate-400">No unregistered devices detected right now.</p>
+        ) : (
+          <ul className="divide-y divide-slate-800/60">
+            {unregisteredDevices.map((device) => {
+              const pendingLock = pendingLockMacs.has(device.mac);
+              return (
+                <li
+                  key={device.mac}
+                  className="flex flex-wrap items-center justify-between gap-4 py-4"
+                >
+                  <div className="min-w-0 space-y-1">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <span className="text-sm font-semibold text-slate-100">{device.name}</span>
+                      <span
+                        className={cn(
+                          "inline-flex items-center gap-2 rounded-full border px-3 py-1 text-xs font-semibold tracking-wide",
+                          device.locked
+                            ? "border-status-locked/40 text-status-locked"
+                            : "border-status-unlocked/40 text-status-unlocked",
+                        )}
+                      >
+                        {device.locked ? "Locked" : "Unlocked"}
+                      </span>
+                    </div>
+                    <div className="flex flex-wrap gap-3 text-xs text-slate-400">
+                      <span className="font-mono text-slate-200">
+                        {device.mac.toUpperCase()}
+                      </span>
+                      {device.ip ? <span>IP {device.ip}</span> : null}
+                      <span>{device.vendor ?? "Unknown vendor"}</span>
+                      {device.lastSeen ? (
+                        <span>Last seen {formatTimestamp(device.lastSeen)}</span>
+                      ) : null}
+                    </div>
+                  </div>
+                  <div className="flex flex-shrink-0 items-center gap-2">
+                    <Button
+                      size="sm"
+                      variant={device.locked ? "secondary" : "destructive"}
+                      onClick={() => void handleToggleUnregisteredLock(device)}
+                      disabled={pendingLock}
+                    >
+                      {pendingLock ? "Working…" : device.locked ? "Unlock" : "Lock"}
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="secondary"
+                      onClick={() => handlePrefillUnregistered(device)}
+                    >
+                      Register
+                    </Button>
+                    <a
+                      href={`/devices?mac=${encodeURIComponent(device.mac)}`}
+                      className="inline-flex items-center justify-center rounded-lg border border-slate-700/60 bg-slate-900/40 px-3 py-2 text-sm text-slate-200 transition hover:border-brand-blue/50 hover:text-slate-50"
+                    >
+                      Details
+                    </a>
+                  </div>
+                </li>
+              );
+            })}
+          </ul>
+        )}
+      </section>
 
       <form
         className="space-y-6 rounded-2xl border border-slate-800/70 bg-slate-900/70 p-6"

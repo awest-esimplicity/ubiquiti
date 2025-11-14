@@ -221,6 +221,14 @@ export class MockLockControllerAdapter implements LockControllerPort {
     return Promise.resolve(detail);
   }
 
+  setUnregisteredLock(device: UnregisteredDevice, unlock = false): Promise<void> {
+    const mac = device.mac.toLowerCase();
+    this.snapshot.unregistered = this.snapshot.unregistered.map((entry) =>
+      entry.mac.toLowerCase() === mac ? { ...entry, locked: !unlock } : entry,
+    );
+    return Promise.resolve();
+  }
+
   private updateDeviceLocks(devices: Device[], locked: boolean) {
     const macs = new Set(devices.map((d) => d.mac));
     this.snapshot.owners = this.snapshot.owners.map((owner) => ({

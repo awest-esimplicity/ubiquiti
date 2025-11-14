@@ -116,4 +116,16 @@ export class ApiLockControllerAdapter implements LockControllerPort {
     const detail = await this.client.getDeviceDetail(mac, lookbackMinutes);
     return mapDeviceDetail(detail);
   }
+
+  async setUnregisteredLock(device: UnregisteredDevice, unlock = false): Promise<void> {
+    await this.client.lockUnregisteredClient(
+      {
+        mac: device.mac,
+        name: device.name,
+        owner: "unregistered",
+        type: "unknown",
+      },
+      unlock,
+    );
+  }
 }

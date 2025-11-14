@@ -22,4 +22,5 @@ export interface LockControllerPort {
   registerDevice(ownerKey: string, payload: DeviceRegistrationPayload): Promise<Device>;
   whoAmI(): Promise<SessionIdentity>;
   getDeviceDetail(mac: string, lookbackMinutes?: number): Promise<DeviceDetail>;
+  setUnregisteredLock(device: UnregisteredDevice, unlock?: boolean): Promise<void>;
 }

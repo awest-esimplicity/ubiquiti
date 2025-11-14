@@ -63,4 +63,8 @@ export class LockControllerService {
   async getDeviceDetail(mac: string, lookbackMinutes?: number): Promise<DeviceDetail> {
     return this.port.getDeviceDetail(mac, lookbackMinutes);
   }
+
+  async setUnregisteredLock(device: UnregisteredDevice, unlock = false): Promise<void> {
+    await this.port.setUnregisteredLock(device, unlock);
+  }
 }
