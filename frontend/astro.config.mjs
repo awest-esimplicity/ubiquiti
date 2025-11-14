@@ -11,7 +11,7 @@ export default defineConfig({
     }),
   ],
   srcDir: "./src",
-  output: "static",
+  output: "hybrid",
   vite: {
     resolve: {
       alias: {
