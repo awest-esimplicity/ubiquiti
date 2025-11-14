@@ -47,6 +47,17 @@ export interface DeviceDetail extends Device {
   dpiApplications: DeviceDPIEntry[];
 }
 
+export interface AuditEvent {
+  id?: number;
+  timestamp: string;
+  action: string;
+  actor?: string;
+  subjectType: string;
+  subjectId?: string;
+  reason?: string;
+  metadata: Record<string, unknown>;
+}
+
 export interface DeviceRegistrationPayload {
   mac: string;
   name?: string;

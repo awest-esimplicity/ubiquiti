@@ -85,6 +85,21 @@ export interface DeviceDPIEntryResponse {
   tx_bytes: number;
 }
 
+export interface AuditEventResponse {
+  id?: number | null;
+  timestamp: string;
+  action: string;
+  actor?: string | null;
+  subject_type: string;
+  subject_id?: string | null;
+  reason?: string | null;
+  metadata?: Record<string, unknown>;
+}
+
+export interface EventListResponse {
+  events: AuditEventResponse[];
+}
+
 export interface DeviceRegistrationRequest {
   mac: string;
   name?: string | null;

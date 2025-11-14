@@ -202,6 +202,20 @@ export class MockLockControllerAdapter implements LockControllerPort {
         seed % 2 === 0
           ? [`Switch-${owner.displayName}`, "WAN Gateway"]
           : [`AP-${owner.displayName}`, "WAN Gateway"],
+      dpiApplications: [
+        {
+          application: seed % 2 === 0 ? "YouTube" : "Instagram",
+          category: seed % 2 === 0 ? "Streaming Media" : "Social Networks",
+          rxBytes: Math.round(totalRxBytes * 0.6),
+          txBytes: Math.round(totalTxBytes * 0.4),
+        },
+        {
+          application: "DNS",
+          category: "Infrastructure",
+          rxBytes: 25_600,
+          txBytes: 12_800,
+        },
+      ],
     };
 
     return Promise.resolve(detail);

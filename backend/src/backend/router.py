@@ -10,6 +10,7 @@ from fastapi import APIRouter, HTTPException, Query, Request, Response, status
 
 from . import schemas
 from .device_types import add_device_type, list_device_types, remove_device_type
+from .events import Event, list_recent_events, record_event
 from .owners import Owner, delete_owner, get_owner_repository, register_owner
 from .services import (
     DeviceRecord,
@@ -83,6 +84,45 @@ def _generate_owner_key(name: str) -> str:
     return candidate
 
 
+def _resolve_actor(request: Request, explicit: str | None = None) -> str:
+    if explicit:
+        candidate = explicit.strip()
+        if candidate:
+            return candidate
+    header_actor = request.headers.get("x-actor")
+    if header_actor:
+        candidate = header_actor.strip()
+        if candidate:
+            return candidate
+    return "system"
+
+
+def _resolve_reason(request: Request, explicit: str | None = None) -> str | None:
+    if explicit:
+        candidate = explicit.strip()
+        if candidate:
+            return candidate
+    header_reason = request.headers.get("x-reason")
+    if header_reason:
+        candidate = header_reason.strip()
+        if candidate:
+            return candidate
+    return None
+
+
+def _event_to_schema(event: Event) -> schemas.AuditEvent:
+    return schemas.AuditEvent(
+        id=event.id,
+        timestamp=event.timestamp,
+        action=event.action,
+        actor=event.actor,
+        subject_type=event.subject_type,
+        subject_id=event.subject_id,
+        reason=event.reason,
+        metadata=event.metadata,
+    )
+
+
 @router.get("/dashboard/summary", response_model=schemas.DashboardSummary)
 def get_dashboard_summary() -> schemas.DashboardSummary:
     try:
@@ -153,6 +193,25 @@ def get_device_detail(
     return schemas.DeviceDetail(**record)
 
 
+@router.get(
+    "/events",
+    response_model=schemas.EventListResponse,
+    tags=["events"],
+)
+def list_audit_events(
+    limit: Annotated[
+        int,
+        Query(
+            ge=1,
+            le=500,
+            description="Maximum number of recent events to return.",
+        ),
+    ] = 100,
+) -> schemas.EventListResponse:
+    events = list_recent_events(limit)
+    return schemas.EventListResponse(events=[_event_to_schema(event) for event in events])
+
+
 @router.get("/owners", response_model=schemas.OwnersResponse)
 def list_owner_summaries() -> schemas.OwnersResponse:
     try:
@@ -196,7 +255,10 @@ def list_all_owners() -> schemas.OwnerListResponse:
     status_code=status.HTTP_201_CREATED,
     tags=["owners"],
 )
-def create_owner(payload: schemas.OwnerCreateRequest) -> schemas.OwnerInfo:
+def create_owner(
+    payload: schemas.OwnerCreateRequest,
+    request: Request,
+) -> schemas.OwnerInfo:
     display_name = payload.display_name.strip()
     if not display_name:
         raise HTTPException(
@@ -213,6 +275,16 @@ def create_owner(payload: schemas.OwnerCreateRequest) -> schemas.OwnerInfo:
     key = _generate_owner_key(display_name)
     owner = Owner(key=key, display_name=display_name, pin=pin)
     register_owner(owner)
+    actor = _resolve_actor(request)
+    reason = _resolve_reason(request)
+    record_event(
+        action="owner_created",
+        subject_type="owner",
+        subject_id=owner.key,
+        actor=actor,
+        reason=reason,
+        metadata={"display_name": owner.display_name},
+    )
     return schemas.OwnerInfo(key=owner.key, display_name=owner.display_name)
 
 
@@ -221,14 +293,26 @@ def create_owner(payload: schemas.OwnerCreateRequest) -> schemas.OwnerInfo:
     status_code=status.HTTP_204_NO_CONTENT,
     tags=["owners"],
 )
-def delete_owner_entry(owner_key: str) -> Response:
+def delete_owner_entry(owner_key: str, request: Request) -> Response:
     if owner_key.lower() in {"master"}:
         raise HTTPException(
             status.HTTP_403_FORBIDDEN,
             detail="Cannot delete the master owner.",
         )
+    owner_repo = get_owner_repository()
+    existing = owner_repo.get(owner_key)
     if not delete_owner(owner_key):
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Owner not found.")
+    actor = _resolve_actor(request)
+    reason = _resolve_reason(request)
+    record_event(
+        action="owner_deleted",
+        subject_type="owner",
+        subject_id=owner_key.lower(),
+        actor=actor,
+        reason=reason,
+        metadata={"display_name": existing.display_name if existing else None},
+    )
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
@@ -288,9 +372,13 @@ def list_owner_devices(owner_key: str) -> schemas.DeviceListResponse:
     status_code=status.HTTP_201_CREATED,
 )
 def register_owner_device(
-    owner_key: str, payload: schemas.DeviceRegistrationRequest
+    owner_key: str,
+    payload: schemas.DeviceRegistrationRequest,
+    request: Request,
 ) -> schemas.DeviceStatus:
     _require_owner(owner_key)
+    actor = _resolve_actor(request, payload.actor)
+    reason = _resolve_reason(request, payload.reason)
     try:
         record = register_device_for_owner(
             owner_key,
@@ -300,6 +388,19 @@ def register_owner_device(
         )
     except UniFiAPIError as exc:
         raise HTTPException(status.HTTP_502_BAD_GATEWAY, detail=str(exc)) from exc
+
+    record_event(
+        action="device_registered",
+        subject_type="device",
+        subject_id=record["mac"],
+        actor=actor,
+        reason=reason,
+        metadata={
+            "owner": record["owner"],
+            "type": record["type"],
+            "name": record["name"],
+        },
+    )
 
     return schemas.DeviceStatus(
         name=record["name"],
@@ -316,10 +417,20 @@ def register_owner_device(
     response_model=schemas.DeviceActionResponse,
     status_code=status.HTTP_200_OK,
 )
-def lock_devices(payload: schemas.DeviceActionRequest) -> schemas.DeviceActionResponse:
+def lock_devices(
+    payload: schemas.DeviceActionRequest,
+    request: Request,
+) -> schemas.DeviceActionResponse:
+    actor = _resolve_actor(request, payload.actor)
+    reason = _resolve_reason(request, payload.reason)
     devices = [build_device_from_target(target) for target in payload.targets]
     try:
-        results = apply_lock_action(devices, unlock=payload.unlock)
+        results = apply_lock_action(
+            devices,
+            unlock=payload.unlock,
+            actor=actor,
+            reason=reason,
+        )
     except UniFiAPIError as exc:
         raise HTTPException(status.HTTP_502_BAD_GATEWAY, detail=str(exc)) from exc
 
@@ -336,6 +447,7 @@ def lock_devices(payload: schemas.DeviceActionRequest) -> schemas.DeviceActionRe
 def lock_owner_devices(
     owner_key: str,
     payload: schemas.OwnerLockRequest,
+    request: Request,
 ) -> schemas.OwnerLockResponse:
     owner_key_lower = owner_key.lower()
     owner_repo = get_owner_repository()
@@ -344,10 +456,29 @@ def lock_owner_devices(
     if not devices and owner_repo.get(owner_key_lower) is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Owner not found.")
 
+    actor = _resolve_actor(request, payload.actor)
+    reason = _resolve_reason(request, payload.reason)
     try:
-        results = apply_lock_action(devices, unlock=payload.unlock)
+        results = apply_lock_action(
+            devices,
+            unlock=payload.unlock,
+            actor=actor,
+            reason=reason,
+        )
     except UniFiAPIError as exc:
         raise HTTPException(status.HTTP_502_BAD_GATEWAY, detail=str(exc)) from exc
+
+    record_event(
+        action="owner_devices_unlocked" if payload.unlock else "owner_devices_locked",
+        subject_type="owner",
+        subject_id=owner_key_lower,
+        actor=actor,
+        reason=reason,
+        metadata={
+            "processed": len(devices),
+            "unlock": payload.unlock,
+        },
+    )
 
     return schemas.OwnerLockResponse(
         owner=owner_key_lower,
@@ -378,6 +509,7 @@ def list_unregistered_clients() -> schemas.UnregisteredClientsResponse:
 )
 def lock_unregistered_client(
     payload: schemas.SingleClientLockRequest,
+    request: Request,
 ) -> schemas.DeviceActionResponse:
     target = schemas.DeviceTarget(
         mac=payload.mac,
@@ -385,9 +517,14 @@ def lock_unregistered_client(
         owner=payload.owner or "unregistered",
         type=payload.type or "unknown",
     )
+    actor = _resolve_actor(request, payload.actor)
+    reason = _resolve_reason(request, payload.reason)
     try:
         results = apply_lock_action(
-            [build_device_from_target(target)], unlock=payload.unlock
+            [build_device_from_target(target)],
+            unlock=payload.unlock,
+            actor=actor,
+            reason=reason,
         )
     except UniFiAPIError as exc:
         raise HTTPException(status.HTTP_502_BAD_GATEWAY, detail=str(exc)) from exc
@@ -423,7 +560,10 @@ def list_schedules(
     status_code=status.HTTP_201_CREATED,
     tags=["schedules"],
 )
-def create_schedule(payload: schemas.ScheduleCreateRequest) -> schemas.DeviceSchedule:
+def create_schedule(
+    payload: schemas.ScheduleCreateRequest,
+    request: Request,
+) -> schemas.DeviceSchedule:
     if payload.scope == "owner":
         if not payload.owner_key:
             raise HTTPException(
@@ -432,7 +572,22 @@ def create_schedule(payload: schemas.ScheduleCreateRequest) -> schemas.DeviceSch
             )
         _require_owner(payload.owner_key)
     schedule_repo = get_schedule_repository()
-    return schedule_repo.create(payload)
+    schedule = schedule_repo.create(payload)
+    actor = _resolve_actor(request)
+    reason = _resolve_reason(request)
+    record_event(
+        action="schedule_created",
+        subject_type="schedule",
+        subject_id=schedule.id,
+        actor=actor,
+        reason=reason,
+        metadata={
+            "scope": schedule.scope,
+            "owner_key": schedule.owner_key,
+            "label": schedule.label,
+        },
+    )
+    return schedule
 
 
 @router.get(
@@ -454,7 +609,9 @@ def get_schedule(schedule_id: str) -> schemas.DeviceSchedule:
     tags=["schedules"],
 )
 def update_schedule(
-    schedule_id: str, payload: schemas.ScheduleUpdateRequest
+    schedule_id: str,
+    payload: schemas.ScheduleUpdateRequest,
+    request: Request,
 ) -> schemas.DeviceSchedule:
     if not payload.model_dump(exclude_unset=True):
         raise HTTPException(
@@ -466,6 +623,18 @@ def update_schedule(
     schedule = schedule_repo.update(schedule_id, payload)
     if schedule is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Schedule not found.")
+    actor = _resolve_actor(request)
+    reason = _resolve_reason(request)
+    record_event(
+        action="schedule_updated",
+        subject_type="schedule",
+        subject_id=schedule_id,
+        actor=actor,
+        reason=reason,
+        metadata={
+            "changes": payload.model_dump(exclude_unset=True, by_alias=True),
+        },
+    )
     return schedule
 
 
@@ -474,11 +643,25 @@ def update_schedule(
     status_code=status.HTTP_204_NO_CONTENT,
     tags=["schedules"],
 )
-def delete_schedule(schedule_id: str) -> Response:
+def delete_schedule(schedule_id: str, request: Request) -> Response:
     schedule_repo = get_schedule_repository()
+    existing = schedule_repo.get(schedule_id)
     deleted = schedule_repo.delete(schedule_id)
     if not deleted:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Schedule not found.")
+    actor = _resolve_actor(request)
+    reason = _resolve_reason(request)
+    record_event(
+        action="schedule_deleted",
+        subject_type="schedule",
+        subject_id=schedule_id,
+        actor=actor,
+        reason=reason,
+        metadata={
+            "label": existing.label if existing else None,
+            "owner_key": existing.owner_key if existing else None,
+        },
+    )
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
@@ -487,11 +670,21 @@ def delete_schedule(schedule_id: str) -> Response:
     response_model=schemas.DeviceSchedule,
     tags=["schedules"],
 )
-def enable_schedule(schedule_id: str) -> schemas.DeviceSchedule:
+def enable_schedule(schedule_id: str, request: Request) -> schemas.DeviceSchedule:
     schedule_repo = get_schedule_repository()
     schedule = schedule_repo.set_enabled(schedule_id, True)
     if schedule is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Schedule not found.")
+    actor = _resolve_actor(request)
+    reason = _resolve_reason(request)
+    record_event(
+        action="schedule_enabled",
+        subject_type="schedule",
+        subject_id=schedule.id,
+        actor=actor,
+        reason=reason,
+        metadata={"owner_key": schedule.owner_key, "label": schedule.label},
+    )
     return schedule
 
 
@@ -554,7 +747,10 @@ def list_device_types_api() -> schemas.DeviceTypesResponse:
     status_code=status.HTTP_201_CREATED,
     tags=["devices"],
 )
-def create_device_type(payload: schemas.DeviceTypeCreateRequest) -> schemas.DeviceTypesResponse:
+def create_device_type(
+    payload: schemas.DeviceTypeCreateRequest,
+    request: Request,
+) -> schemas.DeviceTypesResponse:
     try:
         add_device_type(payload.name)
     except ValueError as exc:
@@ -562,6 +758,15 @@ def create_device_type(payload: schemas.DeviceTypeCreateRequest) -> schemas.Devi
             status.HTTP_422_UNPROCESSABLE_ENTITY,
             detail=str(exc),
         ) from exc
+    actor = _resolve_actor(request)
+    reason = _resolve_reason(request)
+    record_event(
+        action="device_type_created",
+        subject_type="device_type",
+        subject_id=payload.name.lower(),
+        actor=actor,
+        reason=reason,
+    )
     return schemas.DeviceTypesResponse(types=list_device_types())
 
 
@@ -570,9 +775,18 @@ def create_device_type(payload: schemas.DeviceTypeCreateRequest) -> schemas.Devi
     status_code=status.HTTP_204_NO_CONTENT,
     tags=["devices"],
 )
-def delete_device_type(name: str) -> Response:
+def delete_device_type(name: str, request: Request) -> Response:
     if not remove_device_type(name):
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Device type not found.")
+    actor = _resolve_actor(request)
+    reason = _resolve_reason(request)
+    record_event(
+        action="device_type_deleted",
+        subject_type="device_type",
+        subject_id=name.lower(),
+        actor=actor,
+        reason=reason,
+    )
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
@@ -581,11 +795,21 @@ def delete_device_type(name: str) -> Response:
     response_model=schemas.DeviceSchedule,
     tags=["schedules"],
 )
-def disable_schedule(schedule_id: str) -> schemas.DeviceSchedule:
+def disable_schedule(schedule_id: str, request: Request) -> schemas.DeviceSchedule:
     schedule_repo = get_schedule_repository()
     schedule = schedule_repo.set_enabled(schedule_id, False)
     if schedule is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Schedule not found.")
+    actor = _resolve_actor(request)
+    reason = _resolve_reason(request)
+    record_event(
+        action="schedule_disabled",
+        subject_type="schedule",
+        subject_id=schedule.id,
+        actor=actor,
+        reason=reason,
+        metadata={"owner_key": schedule.owner_key, "label": schedule.label},
+    )
     return schedule
 
 

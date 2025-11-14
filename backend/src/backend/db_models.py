@@ -1,4 +1,4 @@
-"""SQLAlchemy ORM models for persisting owners and devices."""
+"""SQLAlchemy ORM models for persisting owners, devices, schedules, and audit events."""
 
 from __future__ import annotations
 
@@ -62,3 +62,18 @@ class ScheduleMetadataModel(Base):
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     timezone: Mapped[str] = mapped_column(String(64), nullable=False)
     generated_at: Mapped[str] = mapped_column(String(64), nullable=False)
+
+
+class EventModel(Base):
+    """Audit log entries for significant system actions."""
+
+    __tablename__ = "events"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    timestamp: Mapped[str] = mapped_column(String(64), nullable=False)
+    action: Mapped[str] = mapped_column(String(128), nullable=False)
+    actor: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    subject_type: Mapped[str] = mapped_column(String(128), nullable=False)
+    subject_id: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    reason: Mapped[str | None] = mapped_column(Text, nullable=True)
+    metadata_json: Mapped[str | None] = mapped_column(Text, nullable=True)

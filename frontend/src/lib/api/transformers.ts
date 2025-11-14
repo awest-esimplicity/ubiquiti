@@ -4,6 +4,8 @@ import type {
   ApiScheduleMetadata,
   ApiScheduleTarget,
   DashboardSummary,
+  EventListResponse,
+  AuditEventResponse,
   DeviceDPIEntryResponse,
   DeviceDetailResponse,
   DeviceStatus,
@@ -16,6 +18,7 @@ import type {
   Device,
   DeviceDPIEntry,
   DeviceDetail,
+  AuditEvent,
   OwnerSummary,
   UnregisteredDevice,
   DeviceTrafficSample,
@@ -105,6 +108,19 @@ export function mapDeviceDetail(detail: DeviceDetailResponse): DeviceDetail {
     destinations: detail.destinations ?? [],
     dpiApplications,
   };
+}
+
+export function mapAuditEvents(response: EventListResponse): AuditEvent[] {
+  return response.events.map((event: AuditEventResponse) => ({
+    id: event.id ?? undefined,
+    timestamp: event.timestamp,
+    action: event.action,
+    actor: event.actor ?? undefined,
+    subjectType: event.subject_type,
+    subjectId: event.subject_id ?? undefined,
+    reason: event.reason ?? undefined,
+    metadata: event.metadata ?? {},
+  }));
 }
 
 export function mapMetadata(summary: DashboardSummary): DashboardMetadata {

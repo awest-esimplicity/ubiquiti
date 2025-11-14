@@ -14,6 +14,7 @@ from backend.device_types import (  # type: ignore[attr-defined]  # noqa: E402
     _DEVICE_TYPES_LOCK,
     _DEVICE_TYPES,
 )
+from backend import events  # noqa: E402
 
 
 client = TestClient(app)
@@ -66,3 +67,27 @@ def test_create_device_type(monkeypatch, tmp_path):
     assert delete_response.status_code == 204
     remaining = client.get("/api/device-types").json()["types"]
     assert "Smart Speaker" not in remaining
+
+
+def test_owner_creation_logs_event(monkeypatch):
+    owner_repo = InMemoryOwnerRepository([])
+    monkeypatch.setattr("backend.router.get_owner_repository", lambda: owner_repo)
+    monkeypatch.setattr("backend.owners.get_owner_repository", lambda: owner_repo)
+
+    audit_repo = events.InMemoryEventRepository()
+    monkeypatch.setattr("backend.events.get_event_repository", lambda: audit_repo)
+
+    response = client.post(
+        "/api/owners",
+        json={"displayName": "Audit Owner", "pin": "1357"},
+        headers={"X-Actor": "auditor"},
+    )
+    assert response.status_code == 201
+
+    events_response = client.get("/api/events")
+    assert events_response.status_code == 200
+    entries = events_response.json()["events"]
+    assert any(
+        entry["action"] == "owner_created" and entry.get("actor") == "auditor"
+        for entry in entries
+    )

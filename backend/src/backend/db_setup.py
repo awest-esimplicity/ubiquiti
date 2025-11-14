@@ -9,7 +9,7 @@ from sqlalchemy import select
 from sqlalchemy.exc import SQLAlchemyError
 
 from .database import get_engine, get_session_factory, is_database_configured
-from .db_models import Base, DeviceModel, OwnerModel, ScheduleModel
+from .db_models import Base, DeviceModel, EventModel, OwnerModel, ScheduleModel
 from .defaults import DEFAULT_SCHEDULE_CONFIG
 from .owners import DEFAULT_OWNERS, Owner
 from .schedules import get_schedule_repository

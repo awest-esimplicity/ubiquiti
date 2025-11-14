@@ -19,6 +19,7 @@ from .ubiquiti.utils import (
     lookup_mac_vendor,
     suppress_insecure_request_warning,
 )
+from .events import record_event
 
 if TYPE_CHECKING:
     from .schemas import DeviceTarget
@@ -89,6 +90,14 @@ class DeviceDetailRecord(TypedDict):
     network_name: str | None
     traffic: DeviceTrafficSummary | None
     destinations: list[str]
+    dpi_applications: list["DeviceDPIRecord"]
+
+
+class DeviceDPIRecord(TypedDict):
+    application: str
+    category: str | None
+    rx_bytes: int
+    tx_bytes: int
     dpi_applications: list["DeviceDPIRecord"]
 
 
@@ -382,7 +391,13 @@ def build_device_from_target(target: DeviceTarget) -> Device:
     return Device(name=name, mac=mac, owner=owner, type=device_type)
 
 
-def apply_lock_action(devices: Iterable[Device], *, unlock: bool) -> list[ActionResult]:
+def apply_lock_action(
+    devices: Iterable[Device],
+    *,
+    unlock: bool,
+    actor: str | None = None,
+    reason: str | None = None,
+) -> list[ActionResult]:
     """Lock or unlock the provided devices and return per-device results."""
     results: list[ActionResult] = []
     with locker_context() as (firewall, locker):
@@ -391,81 +406,158 @@ def apply_lock_action(devices: Iterable[Device], *, unlock: bool) -> list[Action
             try:
                 locked_before = locker.is_device_locked(device, rules)
             except UniFiAPIError as exc:
-                results.append(
-                    {
-                        "mac": device.mac,
-                        "locked": False,
-                        "status": "error",
-                        "message": str(exc),
-                    }
+                result = {
+                    "mac": device.mac,
+                    "locked": False,
+                    "status": "error",
+                    "message": str(exc),
+                }
+                results.append(result)
+                record_event(
+                    action="device_status_failed",
+                    subject_type="device",
+                    subject_id=device.mac,
+                    actor=actor,
+                    reason=reason,
+                    metadata={
+                        "status": result["status"],
+                        "message": result["message"],
+                        "unlock": unlock,
+                    },
                 )
                 continue
 
             if unlock:
                 if not locked_before:
-                    results.append(
-                        {
-                            "mac": device.mac,
-                            "locked": False,
-                            "status": "skipped",
-                            "message": "Device already unlocked.",
-                        }
+                    result = {
+                        "mac": device.mac,
+                        "locked": False,
+                        "status": "skipped",
+                        "message": "Device already unlocked.",
+                    }
+                    results.append(result)
+                    record_event(
+                        action="device_unlock_skipped",
+                        subject_type="device",
+                        subject_id=device.mac,
+                        actor=actor,
+                        reason=reason,
+                        metadata={
+                            "status": result["status"],
+                            "message": result["message"],
+                            "unlock": unlock,
+                        },
                     )
                     continue
                 try:
                     locker.unlock_device(device)
                 except UniFiAPIError as exc:
-                    results.append(
-                        {
-                            "mac": device.mac,
-                            "locked": locked_before,
-                            "status": "error",
-                            "message": str(exc),
-                        }
+                    result = {
+                        "mac": device.mac,
+                        "locked": locked_before,
+                        "status": "error",
+                        "message": str(exc),
+                    }
+                    results.append(result)
+                    record_event(
+                        action="device_unlock_failed",
+                        subject_type="device",
+                        subject_id=device.mac,
+                        actor=actor,
+                        reason=reason,
+                        metadata={
+                            "status": result["status"],
+                            "message": result["message"],
+                            "unlock": unlock,
+                        },
                     )
                     continue
                 rules = firewall.list_rules()
                 locked_after = locker.is_device_locked(device, rules)
-                results.append(
-                    {
-                        "mac": device.mac,
-                        "locked": locked_after,
-                        "status": "success",
-                        "message": "Unlocked device.",
-                    }
+                result = {
+                    "mac": device.mac,
+                    "locked": locked_after,
+                    "status": "success",
+                    "message": "Unlocked device.",
+                }
+                results.append(result)
+                record_event(
+                    action="device_unlocked",
+                    subject_type="device",
+                    subject_id=device.mac,
+                    actor=actor,
+                    reason=reason,
+                    metadata={
+                        "status": result["status"],
+                        "message": result["message"],
+                        "unlock": unlock,
+                    },
                 )
             else:
                 if locked_before:
-                    results.append(
-                        {
-                            "mac": device.mac,
-                            "locked": True,
-                            "status": "skipped",
-                            "message": "Device already locked.",
-                        }
+                    result = {
+                        "mac": device.mac,
+                        "locked": True,
+                        "status": "skipped",
+                        "message": "Device already locked.",
+                    }
+                    results.append(result)
+                    record_event(
+                        action="device_lock_skipped",
+                        subject_type="device",
+                        subject_id=device.mac,
+                        actor=actor,
+                        reason=reason,
+                        metadata={
+                            "status": result["status"],
+                            "message": result["message"],
+                            "unlock": unlock,
+                        },
                     )
                     continue
                 try:
                     locker.lock_device(device)
                 except UniFiAPIError as exc:
-                    results.append(
-                        {
-                            "mac": device.mac,
-                            "locked": locked_before,
-                            "status": "error",
-                            "message": str(exc),
-                        }
+                    result = {
+                        "mac": device.mac,
+                        "locked": locked_before,
+                        "status": "error",
+                        "message": str(exc),
+                    }
+                    results.append(result)
+                    record_event(
+                        action="device_lock_failed",
+                        subject_type="device",
+                        subject_id=device.mac,
+                        actor=actor,
+                        reason=reason,
+                        metadata={
+                            "status": result["status"],
+                            "message": result["message"],
+                            "unlock": unlock,
+                        },
                     )
                     continue
                 rules = firewall.list_rules()
                 locked_after = locker.is_device_locked(device, rules)
-                results.append(
-                    {
-                        "mac": device.mac,
-                        "locked": locked_after,
-                        "status": "success",
-                        "message": "Locked device.",
-                    }
+                result = {
+                    "mac": device.mac,
+                    "locked": locked_after,
+                    "status": "success",
+                    "message": "Locked device.",
+                }
+                results.append(result)
+                record_event(
+                    action="device_locked",
+                    subject_type="device",
+                    subject_id=device.mac,
+                    actor=actor,
+                    reason=reason,
+                    metadata={
+                        "status": result["status"],
+                        "message": result["message"],
+                        "unlock": unlock,
+                    },
                 )
     return results
 

@@ -801,17 +801,26 @@ export function FullConsole() {
             )}
           >
             {index > 0 ? <div className="absolute inset-x-6 -top-4 h-px bg-slate-800/70" /> : null}
-            <div className="flex flex-wrap items-center justify-between gap-4 border-b border-slate-700/40 pb-4">
-              <div>
-                <p className="text-[11px] uppercase tracking-[0.35em] text-slate-500">Owner</p>
-                <h2 className="mt-1 text-2xl font-semibold text-slate-50">{owner.displayName}</h2>
-              </div>
-              <div className="flex gap-3">
-                <Button variant="outline" onClick={() => handleOpenSchedule(owner)}>
-                  Schedule
-                </Button>
-                <Button
-                  variant="destructive"
+          <div className="flex flex-wrap items-center justify-between gap-4 border-b border-slate-700/40 pb-4">
+            <div>
+              <p className="text-[11px] uppercase tracking-[0.35em] text-slate-500">Owner</p>
+              <h2 className="mt-1 text-2xl font-semibold text-slate-50">{owner.displayName}</h2>
+            </div>
+            <div className="flex gap-3">
+              <a
+                href="/activity"
+                className={cn(
+                  buttonVariants({ variant: "ghost", size: "sm" }),
+                  "px-3 text-xs uppercase tracking-[0.3em] text-slate-300 hover:text-white",
+                )}
+              >
+                Activity log
+              </a>
+              <Button variant="outline" onClick={() => handleOpenSchedule(owner)}>
+                Schedule
+              </Button>
+              <Button
+                variant="destructive"
                   onClick={() => handleOwnerBulk(owner.key, true)}
                   disabled={pendingOwnerKeys.has(owner.key) || state.refreshing}
                 >

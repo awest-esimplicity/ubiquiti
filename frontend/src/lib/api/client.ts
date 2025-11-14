@@ -4,6 +4,7 @@ import type {
   ApiScheduleCreateRequest,
   ApiScheduleListResponse,
   DashboardSummary,
+  EventListResponse,
   DeviceActionRequest,
   DeviceDetailResponse,
   DeviceRegistrationRequest,
@@ -187,6 +188,11 @@ export class UnifiApiClient {
 
   async deleteDeviceType(name: string): Promise<void> {
     await this.request(`/api/device-types/${encodeURIComponent(name)}`, { method: "DELETE" });
+  }
+
+  async listEvents(limit = 100, signal?: AbortSignal): Promise<EventListResponse> {
+    const params = new URLSearchParams({ limit: String(limit) });
+    return this.request<EventListResponse>(`/api/events?${params.toString()}`, { signal });
   }
 
   async listSchedules(signal?: AbortSignal): Promise<ApiScheduleListResponse> {

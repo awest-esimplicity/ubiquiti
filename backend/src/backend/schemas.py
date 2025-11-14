@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from datetime import date, datetime
-from typing import Literal
+from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -67,6 +67,8 @@ class DeviceRegistrationRequest(BaseModel):
     name: str | None = None
     type: str | None = None
     mac: str = Field(..., min_length=1)
+    actor: str | None = None
+    reason: str | None = None
 
 
 class DashboardSummary(BaseModel):
@@ -108,6 +110,8 @@ class DeviceTarget(BaseModel):
 class DeviceActionRequest(BaseModel):
     targets: list[DeviceTarget] = Field(..., min_length=1)
     unlock: bool = False
+    actor: str | None = None
+    reason: str | None = None
 
 
 class DeviceActionResult(BaseModel):
@@ -123,6 +127,8 @@ class DeviceActionResponse(BaseModel):
 
 class OwnerLockRequest(BaseModel):
     unlock: bool = False
+    actor: str | None = None
+    reason: str | None = None
 
 
 class OwnerLockResponse(BaseModel):
@@ -150,6 +156,8 @@ class SingleClientLockRequest(BaseModel):
     owner: str | None = None
     type: str | None = None
     unlock: bool = False
+    actor: str | None = None
+    reason: str | None = None
 
 
 # ---------------------------------------------------------------------------
@@ -185,6 +193,21 @@ class DeviceTypesResponse(CamelModel):
 
 class DeviceTypeCreateRequest(CamelModel):
     name: str = Field(..., min_length=1, max_length=255)
+
+
+class AuditEvent(BaseModel):
+    id: int | None = None
+    timestamp: datetime
+    action: str
+    actor: str | None = None
+    subject_type: str
+    subject_id: str | None = None
+    reason: str | None = None
+    metadata: dict[str, Any] = Field(default_factory=dict)
+
+
+class EventListResponse(BaseModel):
+    events: list[AuditEvent] = Field(default_factory=list)
 
 
 class WhoAmIResponse(CamelModel):
@@ -289,6 +312,11 @@ class OwnerScheduleResponse(CamelModel):
 __all__ = [
     "DeviceStatus",
     "DeviceListResponse",
+    "DeviceTrafficSample",
+    "DeviceTrafficSummary",
+    "DeviceDetail",
+    "DeviceDPIEntry",
+    "DeviceRegistrationRequest",
     "DashboardSummary",
     "OwnerSummary",
     "OwnersResponse",
@@ -314,4 +342,6 @@ __all__ = [
     "ScheduleUpdateRequest",
     "ScheduleListResponse",
     "OwnerScheduleResponse",
+    "AuditEvent",
+    "EventListResponse",
 ]

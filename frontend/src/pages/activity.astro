@@ -1,0 +1,10 @@
+---
+import MainLayout from "@/layouts/MainLayout.astro";
+import { ActivityLog } from "@/components/activity/ActivityLog";
+---
+
+<MainLayout title="Activity Log">
+  <section class="mx-auto w-full max-w-[1200px] px-6 py-12">
+    <ActivityLog client:only="react" />
+  </section>
+</MainLayout>
