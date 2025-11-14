@@ -455,7 +455,7 @@ export function FullConsole() {
             href="/activity"
             className="inline-flex items-center gap-2 rounded-lg border border-slate-600/60 bg-slate-900/40 px-4 py-2 text-sm font-medium text-slate-200 transition hover:border-brand-blue/50 hover:text-slate-50"
           >
-            Activity log
+            Control log
           </a>
         </div>
       </header>
@@ -687,7 +687,7 @@ export function FullConsole() {
 
             <details className="rounded-2xl border border-slate-700/40 bg-slate-950/40 px-4 py-3 text-slate-200">
               <summary className="cursor-pointer text-sm font-medium text-slate-100">
-                Activity summary
+                Control summary
               </summary>
               <div className="mt-3 overflow-hidden rounded-2xl border border-slate-800/40 bg-slate-950/30">
                 <div className="divide-y divide-slate-800/60">

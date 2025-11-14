@@ -35,7 +35,7 @@ function buildRelativeTime(iso: string): string {
   return `${days}d ago`;
 }
 
-export function ActivityLog() {
+export function ControlLog() {
   const [events, setEvents] = useState<AuditEvent[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string>();
@@ -143,21 +143,24 @@ export function ActivityLog() {
       <header className="rounded-3xl border border-slate-700/50 bg-slate-900/40 p-6 shadow-card">
         <div className="flex flex-wrap items-end justify-between gap-4">
           <div>
-            <p className="text-xs uppercase tracking-[0.35em] text-slate-500">System activity</p>
-            <h1 className="mt-1 text-3xl font-semibold text-slate-100">Audit log</h1>
+            <p className="text-xs uppercase tracking-[0.35em] text-slate-500">Control history</p>
+            <h1 className="mt-1 text-3xl font-semibold text-slate-100">Control log</h1>
             <p className="mt-2 text-sm text-slate-400">
-              Tracking device locks, owner changes, schedule updates, and more. Inject
-              `X-Actor`/`X-Reason` headers or payload fields to enrich entries.
+              View the lock/unlock actions, owner changes, schedule updates, and other enforcement
+              activities. Provide `X-Actor`/`X-Reason` headers or payload fields when calling the API
+              to annotate entries.
             </p>
             {mostRecent ? (
               <p className="mt-2 text-xs uppercase tracking-[0.3em] text-slate-500">
-                Latest event • {formatTimestamp(mostRecent)} ({buildRelativeTime(mostRecent)})
+                Latest entry • {formatTimestamp(mostRecent)} ({buildRelativeTime(mostRecent)})
               </p>
             ) : null}
           </div>
           <div className="flex flex-wrap items-center gap-3">
             <div className="flex items-center gap-2">
-              <label className="text-xs uppercase tracking-[0.3em] text-slate-500">Auto refresh</label>
+              <label className="text-xs uppercase tracking-[0.3em] text-slate-500">
+                Auto refresh
+              </label>
               <input
                 type="checkbox"
                 checked={autoRefresh}
