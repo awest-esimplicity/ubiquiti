@@ -1,12 +1,4 @@
-export type DeviceType =
-  | "computer"
-  | "tv"
-  | "switch"
-  | "streaming"
-  | "console"
-  | "phone"
-  | "tablet"
-  | "unknown";
+export type DeviceType = string;
 
 export interface Device {
   name: string;

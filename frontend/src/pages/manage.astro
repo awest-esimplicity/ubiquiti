@@ -1,0 +1,10 @@
+---
+import MainLayout from "@/layouts/MainLayout.astro";
+import { ManageInventory } from "@/components/dashboard/ManageInventory";
+---
+
+<MainLayout title="Manage Network Directory">
+  <section class="mx-auto w-full max-w-[1100px] px-6 py-12">
+    <ManageInventory client:only="react" />
+  </section>
+</MainLayout>

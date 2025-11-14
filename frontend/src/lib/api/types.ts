@@ -11,6 +11,15 @@ export interface OwnersResponse {
   owners: ApiOwnerSummary[];
 }
 
+export interface OwnerInfo {
+  key: string;
+  displayName: string;
+}
+
+export interface OwnerListResponse {
+  owners: OwnerInfo[];
+}
+
 export interface ApiOwnerSummary {
   key: string;
   display_name: string;
@@ -36,6 +45,11 @@ export interface DeviceRegistrationRequest {
   mac: string;
   name?: string | null;
   type?: string | null;
+}
+
+export interface OwnerCreateRequest {
+  displayName: string;
+  pin: string;
 }
 
 export interface UnregisteredClient {
@@ -79,6 +93,14 @@ export interface WhoAmIResponse {
   ip?: string | null;
   forwardedFor: string[];
   probableClients: UnregisteredClient[];
+}
+
+export interface DeviceTypesResponse {
+  types: string[];
+}
+
+export interface DeviceTypeCreateRequest {
+  name: string;
 }
 
 export interface ApiScheduleWindow {

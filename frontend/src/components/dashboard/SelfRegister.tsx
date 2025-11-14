@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 
 import { Button } from "@/components/ui/button";
+import { adminService } from "@/lib/bootstrap/admin";
 import { lockControllerService } from "@/lib/bootstrap/lockController";
 import type { DeviceType, OwnerSummary, UnregisteredDevice } from "@/lib/domain/models";
 import { cn } from "@/lib/utils/cn";
@@ -18,7 +19,7 @@ interface DetectedDeviceInfo {
   notes: string;
 }
 
-const REGISTRATION_TYPES: DeviceType[] = [
+const FALLBACK_DEVICE_TYPES: DeviceType[] = [
   "computer",
   "tv",
   "switch",
@@ -80,6 +81,7 @@ export function SelfRegisterDevice() {
   const [probableClients, setProbableClients] = useState<UnregisteredDevice[]>([]);
   const [selectedProbableMac, setSelectedProbableMac] = useState<string | null>(null);
   const [identityError, setIdentityError] = useState<string | undefined>();
+  const [availableTypes, setAvailableTypes] = useState<string[]>(FALLBACK_DEVICE_TYPES);
 
   useEffect(() => {
     let cancelled = false;
@@ -150,6 +152,32 @@ export function SelfRegisterDevice() {
     };
   }, []);
 
+  useEffect(() => {
+    let cancelled = false;
+    void adminService
+      .listDeviceTypes()
+      .then((types) => {
+        if (cancelled) {
+          return;
+        }
+        if (types.length > 0) {
+          setAvailableTypes(types);
+          if (!types.includes(deviceType)) {
+            setDeviceType(types[0]);
+          }
+        }
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setAvailableTypes(FALLBACK_DEVICE_TYPES);
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   const ownerOptions = useMemo(
     () => [...owners].sort((a, b) => a.displayName.localeCompare(b.displayName)),
     [owners],
@@ -179,6 +207,10 @@ export function SelfRegisterDevice() {
         message:
           "Device registered successfully. It may take a few seconds to appear under the owner.",
       });
+      setProbableClients((prev) =>
+        prev.filter((client) => client.mac.toLowerCase() !== payload.mac.toLowerCase()),
+      );
+      setSelectedProbableMac(null);
       setMacAddress("");
     } catch (error) {
       const message = error instanceof Error ? error.message : "Unable to register device.";
@@ -283,7 +315,8 @@ export function SelfRegisterDevice() {
           <header>
             <h2 className="text-sm font-semibold text-slate-200">Likely matches</h2>
             <p className="text-xs text-slate-400">
-              We found devices recently active at your IP. Select one to pre-fill the form or continue manually.
+              We found devices recently active at your IP. Select one to pre-fill the form or
+              continue manually.
             </p>
           </header>
           <div className="grid gap-3 md:grid-cols-2">
@@ -306,7 +339,9 @@ export function SelfRegisterDevice() {
                     <span
                       className={cn(
                         "rounded-full px-2 py-0.5 text-[11px] uppercase tracking-wider",
-                        isSelected ? "bg-brand-blue/80 text-white" : "bg-slate-800/70 text-slate-400",
+                        isSelected
+                          ? "bg-brand-blue/80 text-white"
+                          : "bg-slate-800/70 text-slate-400",
                       )}
                     >
                       {isSelected ? "Selected" : "Tap to select"}
@@ -328,9 +363,7 @@ export function SelfRegisterDevice() {
                     {client.lastSeen ? (
                       <div className="flex justify-between gap-2">
                         <span className="text-slate-500">Last seen</span>
-                        <span className="text-slate-200">
-                          {formatTimestamp(client.lastSeen)}
-                        </span>
+                        <span className="text-slate-200">{formatTimestamp(client.lastSeen)}</span>
                       </div>
                     ) : null}
                   </dl>
@@ -399,10 +432,10 @@ export function SelfRegisterDevice() {
             Device type
             <select
               value={deviceType}
-              onChange={(event) => setDeviceType(event.target.value as DeviceType)}
+              onChange={(event) => setDeviceType(event.target.value)}
               className="rounded-lg border border-slate-700/60 bg-slate-950/70 px-3 py-2 text-sm capitalize text-slate-100 focus:border-brand-blue focus:outline-none focus:ring-1 focus:ring-brand-blue"
             >
-              {REGISTRATION_TYPES.map((type) => (
+              {availableTypes.map((type) => (
                 <option key={type} value={type}>
                   {type}
                 </option>

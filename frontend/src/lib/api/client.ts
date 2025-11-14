@@ -9,7 +9,12 @@ import type {
   DeviceListResponse,
   DeviceStatus,
   DeviceTarget,
+  DeviceTypeCreateRequest,
+  DeviceTypesResponse,
+  OwnerInfo,
   WhoAmIResponse,
+  OwnerCreateRequest,
+  OwnerListResponse,
   OwnerLockRequest,
   OwnersResponse,
   SingleClientLockRequest,
@@ -81,6 +86,17 @@ export class UnifiApiClient {
     return this.request<OwnersResponse>("/api/owners", { signal });
   }
 
+  async listAllOwners(signal?: AbortSignal): Promise<OwnerListResponse> {
+    return this.request<OwnerListResponse>("/api/owners/all", { signal });
+  }
+
+  async createOwner(payload: OwnerCreateRequest): Promise<OwnerInfo> {
+    return this.request<OwnerInfo, OwnerCreateRequest>("/api/owners", {
+      method: "POST",
+      body: payload,
+    });
+  }
+
   async listOwnerDevices(ownerKey: string, signal?: AbortSignal): Promise<DeviceListResponse> {
     return this.request<DeviceListResponse>(`/api/owners/${ownerKey}/devices`, { signal });
   }
@@ -136,6 +152,17 @@ export class UnifiApiClient {
 
   async whoAmI(signal?: AbortSignal): Promise<WhoAmIResponse> {
     return this.request<WhoAmIResponse>("/api/session/whoami", { signal });
+  }
+
+  async listDeviceTypes(signal?: AbortSignal): Promise<DeviceTypesResponse> {
+    return this.request<DeviceTypesResponse>("/api/device-types", { signal });
+  }
+
+  async createDeviceType(payload: DeviceTypeCreateRequest): Promise<DeviceTypesResponse> {
+    return this.request<DeviceTypesResponse, DeviceTypeCreateRequest>("/api/device-types", {
+      method: "POST",
+      body: payload,
+    });
   }
 
   async listSchedules(signal?: AbortSignal): Promise<ApiScheduleListResponse> {

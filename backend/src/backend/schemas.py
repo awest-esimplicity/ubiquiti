@@ -123,6 +123,28 @@ class CamelModel(BaseModel):
     model_config = ConfigDict(alias_generator=_to_camel, populate_by_name=True)
 
 
+class OwnerInfo(CamelModel):
+    key: str
+    display_name: str
+
+
+class OwnerListResponse(CamelModel):
+    owners: list[OwnerInfo]
+
+
+class OwnerCreateRequest(CamelModel):
+    display_name: str = Field(..., min_length=1, max_length=255)
+    pin: str = Field(..., min_length=1, max_length=64)
+
+
+class DeviceTypesResponse(CamelModel):
+    types: list[str]
+
+
+class DeviceTypeCreateRequest(CamelModel):
+    name: str = Field(..., min_length=1, max_length=255)
+
+
 class WhoAmIResponse(CamelModel):
     ip: str | None = None
     forwarded_for: list[str] = Field(default_factory=list)

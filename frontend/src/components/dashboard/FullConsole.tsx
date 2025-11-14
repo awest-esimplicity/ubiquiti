@@ -89,7 +89,7 @@ function computeFilteredData(
   searchTerm: string,
   status: StatusFilter,
   ownerFilter: string,
-  typeFilter: DeviceType | "all",
+  typeFilter: string,
 ): FilteredOwners {
   if (!snapshot) {
     return {
@@ -158,7 +158,7 @@ export function FullConsole() {
   const [searchTerm, setSearchTerm] = useState<string>("");
   const [statusFilter, setStatusFilter] = useState<StatusFilter>("all");
   const [ownerFilter, setOwnerFilter] = useState<string>("all");
-  const [typeFilter, setTypeFilter] = useState<DeviceType | "all">("all");
+  const [typeFilter, setTypeFilter] = useState<string>("all");
   const [scheduleOwner, setScheduleOwner] = useState<{ key: string; name: string }>();
   const [pendingDeviceMacs, setPendingDeviceMacs] = useState<Set<string>>(new Set());
   const [pendingOwnerKeys, setPendingOwnerKeys] = useState<Set<string>>(new Set());
@@ -168,6 +168,7 @@ export function FullConsole() {
   >({});
   const [pendingRegistrationMacs, setPendingRegistrationMacs] = useState<Set<string>>(new Set());
   const [registrationSuccess, setRegistrationSuccess] = useState<Set<string>>(new Set());
+  const [expandedRegistrations, setExpandedRegistrations] = useState<Set<string>>(new Set());
 
   useEffect(() => {
     if (typeof window === "undefined") {
@@ -426,6 +427,11 @@ export function FullConsole() {
             next.add(device.mac);
             return next;
           });
+          setExpandedRegistrations((prev) => {
+            const next = new Set(prev);
+            next.delete(device.mac);
+            return next;
+          });
           return refreshSnapshot();
         })
         .catch((error: Error) => {
@@ -451,6 +457,18 @@ export function FullConsole() {
     [state.snapshot, searchTerm, statusFilter, ownerFilter, typeFilter],
   );
 
+  const toggleRegistrationPanel = useCallback((mac: string) => {
+    setExpandedRegistrations((prev) => {
+      const next = new Set(prev);
+      if (next.has(mac)) {
+        next.delete(mac);
+      } else {
+        next.add(mac);
+      }
+      return next;
+    });
+  }, []);
+
   const metadata = state.snapshot?.metadata;
   const inventoryLockRate =
     metadata && metadata.totalDevices > 0
@@ -459,7 +477,7 @@ export function FullConsole() {
   const hasFilteredResults = filtered.counts.filteredDevices > 0;
   const ownerOptions = useMemo(() => state.snapshot?.owners ?? [], [state.snapshot]);
   const deviceTypeOptions = useMemo(() => {
-    const types = new Set<DeviceType>();
+    const types = new Set<string>();
     ownerOptions.forEach((owner) => {
       owner.devices.forEach((device) => types.add(device.type));
     });
@@ -477,7 +495,7 @@ export function FullConsole() {
     setOwnerFilter(value);
   }, []);
 
-  const handleTypeFilterChange = useCallback((value: DeviceType | "all") => {
+  const handleTypeFilterChange = useCallback((value: string) => {
     setTypeFilter(value);
   }, []);
 
@@ -575,6 +593,12 @@ export function FullConsole() {
           >
             Register a device
           </a>
+          <a
+            href="/manage"
+            className="inline-flex items-center gap-2 rounded-lg border border-slate-600/60 bg-slate-900/40 px-4 py-2 text-sm font-medium text-slate-200 transition hover:border-brand-blue/50 hover:text-slate-50"
+          >
+            Manage owners &amp; types
+          </a>
         </div>
       </header>
 
@@ -613,9 +637,7 @@ export function FullConsole() {
               <select
                 id="console-type"
                 value={typeFilter}
-                onChange={(event) =>
-                  handleTypeFilterChange(event.target.value as DeviceType | "all")
-                }
+                onChange={(event) => handleTypeFilterChange(event.target.value)}
                 className="w-48 rounded-lg border border-slate-700/50 bg-slate-950/70 px-3 py-2 text-sm text-slate-100 focus:border-brand-blue focus:outline-none focus:ring-1 focus:ring-brand-blue"
               >
                 <option value="all">All types</option>
@@ -788,11 +810,11 @@ export function FullConsole() {
             </div>
           </div>
 
-          <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+          <div className="grid gap-6 md:grid-cols-2 xl:grid-cols-4">
             {owner.devices.map((device) => (
               <article
                 key={device.mac}
-                className="rounded-2xl border border-slate-700/40 bg-slate-900/50 p-5 transition hover:border-brand-blue/50 hover:bg-slate-900/70"
+                className="overflow-hidden rounded-2xl border border-slate-700/40 bg-slate-900/50 p-5 transition hover:border-brand-blue/50 hover:bg-slate-900/70"
               >
                 <div>
                   <h3 className="text-lg font-medium text-slate-50">{device.name}</h3>
@@ -850,7 +872,7 @@ export function FullConsole() {
               </h2>
             </div>
           </div>
-          <div className="mt-5 grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+          <div className="mt-5 grid gap-6 md:grid-cols-2 xl:grid-cols-4">
             {filtered.unregistered.map((device) => {
               const defaults: RegistrationFormValues = {
                 ownerKey: "",
@@ -864,20 +886,21 @@ export function FullConsole() {
                 form.ownerKey && ownerOptions.find((owner) => owner.key === form.ownerKey);
               const vendorName = device.vendor ?? "Unknown vendor";
               const isUnknownVendor = vendorName.toLowerCase() === "unknown vendor";
+              const isExpanded = expandedRegistrations.has(device.mac);
 
               return (
                 <article
                   key={device.mac}
-                  className="hover:shadow-card-xl rounded-2xl border border-slate-700/40 bg-gradient-to-br from-slate-900/80 via-slate-900/60 to-slate-950/90 p-5 shadow-inner transition hover:border-brand-blue/50"
+                className="hover:shadow-card-xl rounded-2xl border border-slate-700/40 bg-gradient-to-br from-slate-900/80 via-slate-900/60 to-slate-950/90 p-5 shadow-inner transition hover:border-brand-blue/50 overflow-hidden"
                 >
-                  <div className="flex items-start justify-between gap-3">
+                  <div className="space-y-2">
                     <div className="space-y-1">
                       <h3 className="text-lg font-semibold text-slate-50">{device.name}</h3>
                       <p className="font-mono text-xs uppercase tracking-[0.25em] text-slate-500">
                         {device.mac}
                       </p>
                     </div>
-                    <div className="flex flex-col items-end gap-2">
+                    <div className="flex items-center gap-3">
                       <span
                         className={cn(
                           "inline-flex items-center gap-2 rounded-full border px-3 py-1 text-xs font-semibold tracking-wide",
@@ -918,7 +941,7 @@ export function FullConsole() {
                       <dt className="text-xs uppercase tracking-[0.3em] text-slate-500">Vendor</dt>
                       <dd className="mt-1 flex items-center gap-2 font-medium">
                         {isUnknownVendor ? (
-                          <span className="inline-flex items-center gap-1 rounded-full border border-amber-500/60 bg-amber-500/10 px-2 py-0.5 text-[11px] font-semibold uppercase tracking-wide text-amber-300">
+                          <span className="inline-flex items-center gap-1 rounded-full border border-amber-400/40 bg-amber-400/10 px-2 py-0.5 text-[11px] font-medium uppercase tracking-wide text-amber-200">
                             {ICONS.alert}
                             Unknown vendor
                           </span>
@@ -929,12 +952,29 @@ export function FullConsole() {
                     </div>
                   </dl>
 
-                  <div className="mt-6 space-y-4 rounded-2xl border border-slate-800/60 bg-slate-950/40 p-4">
-                    <div className="flex items-center justify-between">
-                      <div>
-                        <h4 className="text-sm font-semibold text-slate-200">
-                          Register this device
-                        </h4>
+                  <div className="mt-6">
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="w-full justify-between text-slate-200"
+                      onClick={() => toggleRegistrationPanel(device.mac)}
+                    >
+                      <span className="text-sm font-medium">
+                        {isExpanded ? "Hide registration" : "Register this device"}
+                      </span>
+                      <span className="text-xs uppercase tracking-[0.25em] text-slate-400">
+                        {isExpanded ? "−" : "+"}
+                      </span>
+                    </Button>
+                  </div>
+
+                  {isExpanded ? (
+                    <div className="mt-4 space-y-4 rounded-2xl border border-slate-800/60 bg-slate-950/40 p-4">
+                      <div className="flex items-center justify-between">
+                        <div>
+                          <h4 className="text-sm font-semibold text-slate-200">
+                            Register this device
+                          </h4>
                         <p className="text-xs text-slate-400">
                           Assign an owner to move the client into the managed inventory.
                         </p>
@@ -1045,7 +1085,8 @@ export function FullConsole() {
                         Registration removes the device from this list and applies owner policies.
                       </p>
                     </div>
-                  </div>
+                    </div>
+                  ) : null}
                 </article>
               );
             })}

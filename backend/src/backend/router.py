@@ -2,13 +2,15 @@
 
 from __future__ import annotations
 
+import re
 from datetime import UTC, datetime
 from typing import Annotated
 
 from fastapi import APIRouter, HTTPException, Query, Request, Response, status
 
 from . import schemas
-from .owners import get_owner_repository
+from .device_types import add_device_type, list_device_types
+from .owners import Owner, get_owner_repository, register_owner
 from .services import (
     DeviceRecord,
     apply_lock_action,
@@ -64,6 +66,20 @@ def _require_owner(owner_key: str) -> None:
     owner_repo = get_owner_repository()
     if owner_repo.get(owner_key) is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Owner not found.")
+
+
+def _generate_owner_key(name: str) -> str:
+    owner_repo = get_owner_repository()
+    existing = {owner.key for owner in owner_repo.list_all()}
+    base = re.sub(r"[^a-z0-9]+", "-", name.lower()).strip("-")
+    if not base:
+        base = "owner"
+    candidate = base
+    suffix = 2
+    while candidate in existing:
+        candidate = f"{base}-{suffix}"
+        suffix += 1
+    return candidate
 
 
 @router.get("/dashboard/summary", response_model=schemas.DashboardSummary)
@@ -134,6 +150,47 @@ def list_owner_summaries() -> schemas.OwnersResponse:
             for summary in summaries
         ]
     )
+
+
+@router.get(
+    "/owners/all",
+    response_model=schemas.OwnerListResponse,
+    tags=["owners"],
+)
+def list_all_owners() -> schemas.OwnerListResponse:
+    repository = get_owner_repository()
+    owners = [
+        schemas.OwnerInfo(key=owner.key, display_name=owner.display_name)
+        for owner in repository.list_all()
+    ]
+    owners.sort(key=lambda item: item.display_name.lower())
+    return schemas.OwnerListResponse(owners=owners)
+
+
+@router.post(
+    "/owners",
+    response_model=schemas.OwnerInfo,
+    status_code=status.HTTP_201_CREATED,
+    tags=["owners"],
+)
+def create_owner(payload: schemas.OwnerCreateRequest) -> schemas.OwnerInfo:
+    display_name = payload.display_name.strip()
+    if not display_name:
+        raise HTTPException(
+            status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="displayName must not be empty.",
+        )
+    pin = payload.pin.strip()
+    if not pin:
+        raise HTTPException(
+            status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="pin must not be empty.",
+        )
+
+    key = _generate_owner_key(display_name)
+    owner = Owner(key=key, display_name=display_name, pin=pin)
+    register_owner(owner)
+    return schemas.OwnerInfo(key=owner.key, display_name=owner.display_name)
 
 
 @router.post(
@@ -441,6 +498,32 @@ def get_session_identity(request: Request) -> schemas.WhoAmIResponse:
         forwarded_for=forwarded_values,
         probable_clients=probable,
     )
+
+
+@router.get(
+    "/device-types",
+    response_model=schemas.DeviceTypesResponse,
+    tags=["devices"],
+)
+def list_device_types_api() -> schemas.DeviceTypesResponse:
+    return schemas.DeviceTypesResponse(types=list_device_types())
+
+
+@router.post(
+    "/device-types",
+    response_model=schemas.DeviceTypesResponse,
+    status_code=status.HTTP_201_CREATED,
+    tags=["devices"],
+)
+def create_device_type(payload: schemas.DeviceTypeCreateRequest) -> schemas.DeviceTypesResponse:
+    try:
+        add_device_type(payload.name)
+    except ValueError as exc:
+        raise HTTPException(
+            status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=str(exc),
+        ) from exc
+    return schemas.DeviceTypesResponse(types=list_device_types())
 
 
 @router.post(

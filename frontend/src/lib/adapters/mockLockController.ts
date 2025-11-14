@@ -28,20 +28,8 @@ export class MockLockControllerAdapter implements LockControllerPort {
     if (!input) {
       return "unknown";
     }
-    const normalized = input.toLowerCase();
-    const allowed: Device["type"][] = [
-      "computer",
-      "tv",
-      "switch",
-      "streaming",
-      "console",
-      "phone",
-      "tablet",
-      "unknown",
-    ];
-    return allowed.includes(normalized as Device["type"])
-      ? (normalized as Device["type"])
-      : "unknown";
+    const normalized = input.trim();
+    return normalized === "" ? "unknown" : normalized;
   }
 
   loadSnapshot(): Promise<DashboardSnapshot> {
