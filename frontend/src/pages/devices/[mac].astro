@@ -2,6 +2,8 @@
 import MainLayout from "@/layouts/MainLayout.astro";
 import { DeviceDetailView } from "@/components/dashboard/DeviceDetailView";
 
+export const prerender = false;
+
 const rawMac = Astro.params.mac ?? "";
 let decodedMac = rawMac;
 try {
