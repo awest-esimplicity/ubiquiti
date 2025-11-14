@@ -41,14 +41,21 @@ def _schedule_to_model(schedule: DeviceSchedule) -> ScheduleModel:
         owner_key=schedule.owner_key,
         label=schedule.label,
         description=schedule.description,
-        targets_json=json.dumps(schedule.targets.model_dump(by_alias=True)),
+        targets_json=json.dumps(
+            schedule.targets.model_dump(mode="json", by_alias=True)
+        ),
         action=schedule.action,
         end_action=schedule.end_action,
         window_start=schedule.window.start.isoformat(),
         window_end=schedule.window.end.isoformat(),
-        recurrence_json=json.dumps(schedule.recurrence.model_dump(by_alias=True)),
+        recurrence_json=json.dumps(
+            schedule.recurrence.model_dump(mode="json", by_alias=True)
+        ),
         exceptions_json=json.dumps(
-            [exception.model_dump(by_alias=True) for exception in schedule.exceptions]
+            [
+                exception.model_dump(mode="json", by_alias=True)
+                for exception in schedule.exceptions
+            ]
         ),
         enabled=schedule.enabled,
         created_at=schedule.created_at.isoformat(),
