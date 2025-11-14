@@ -49,6 +49,7 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 WORKDIR /app
 
 COPY --from=backend-builder /app/.venv /app/.venv
+RUN pip install uv==0.4.18
 COPY backend/src ./src
 COPY backend/pyproject.toml backend/uv.lock ./ 
 COPY backend/README.md ./README.md
