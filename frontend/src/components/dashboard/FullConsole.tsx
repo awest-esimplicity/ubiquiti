@@ -599,6 +599,12 @@ export function FullConsole() {
           >
             Manage owners &amp; types
           </a>
+          <a
+            href="/activity"
+            className="inline-flex items-center gap-2 rounded-lg border border-slate-600/60 bg-slate-900/40 px-4 py-2 text-sm font-medium text-slate-200 transition hover:border-brand-blue/50 hover:text-slate-50"
+          >
+            Activity log
+          </a>
         </div>
       </header>
 
@@ -807,15 +813,6 @@ export function FullConsole() {
               <h2 className="mt-1 text-2xl font-semibold text-slate-50">{owner.displayName}</h2>
             </div>
             <div className="flex gap-3">
-              <a
-                href="/activity"
-                className={cn(
-                  buttonVariants({ variant: "ghost", size: "sm" }),
-                  "px-3 text-xs uppercase tracking-[0.3em] text-slate-300 hover:text-white",
-                )}
-              >
-                Activity log
-              </a>
               <Button variant="outline" onClick={() => handleOpenSchedule(owner)}>
                 Schedule
               </Button>
