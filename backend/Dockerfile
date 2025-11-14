@@ -28,10 +28,11 @@ RUN apt-get update \
     && apt-get install -y --no-install-recommends build-essential \
     && rm -rf /var/lib/apt/lists/*
 
-COPY backend/pyproject.toml backend/uv.lock ./
+COPY backend/pyproject.toml backend/uv.lock backend/README.md ./
 RUN pip install uv==0.4.18
 
 COPY backend/src ./src
+COPY backend/README.md ./README.md
 RUN uv sync --frozen --project .
 
 # ----------------------------------------------------------------------
