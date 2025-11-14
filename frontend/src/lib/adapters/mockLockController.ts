@@ -2,6 +2,7 @@ import rawSnapshot from "@/data/mock-config.json";
 import type {
   DashboardSnapshot,
   Device,
+  DeviceDetail,
   DeviceRegistrationPayload,
   OwnerSummary,
   SessionIdentity,
@@ -131,6 +132,75 @@ export class MockLockControllerAdapter implements LockControllerPort {
       forwardedFor: [],
       probableClients: [],
     });
+  }
+
+  getDeviceDetail(mac: string, lookbackMinutes = 60): Promise<DeviceDetail> {
+    const normalizedMac = mac.toLowerCase();
+    const owner = this.snapshot.owners.find((entry) =>
+      entry.devices.some((device) => device.mac === normalizedMac),
+    );
+    if (!owner) {
+      throw new Error(`Device ${mac} not found in mock data.`);
+    }
+
+    const device = owner.devices.find((entry) => entry.mac === normalizedMac);
+    if (!device) {
+      throw new Error(`Device ${mac} not found in mock data.`);
+    }
+
+    const interval = Math.min(24 * 60, Math.max(5, Math.trunc(lookbackMinutes)));
+    const now = new Date();
+    const sampleStep = Math.max(5, Math.trunc(interval / 12) || 5);
+    const samples: {
+      timestamp: string;
+      rxBytes: number;
+      txBytes: number;
+      totalBytes: number;
+    }[] = [];
+
+    const seed = normalizedMac.split(":").reduce((acc, chunk) => acc + parseInt(chunk, 16), 0);
+
+    for (let minutes = interval; minutes >= 0; minutes -= sampleStep) {
+      const timestamp = new Date(now.getTime() - minutes * 60 * 1000).toISOString();
+      const rxBytes = ((seed + minutes * 47) % 2048) * 1024;
+      const txBytes = ((seed + (interval - minutes) * 31) % 2048) * 768;
+      samples.push({
+        timestamp,
+        rxBytes,
+        txBytes,
+        totalBytes: rxBytes + txBytes,
+      });
+    }
+
+    const totalRxBytes = samples.reduce((sum, sample) => sum + sample.rxBytes, 0);
+    const totalTxBytes = samples.reduce((sum, sample) => sum + sample.txBytes, 0);
+    const start = samples[0]?.timestamp;
+    const end = samples[samples.length - 1]?.timestamp ?? start;
+
+    const ipSubnet = 10 + (seed % 50);
+    const ipHost = 20 + (seed % 200);
+
+    const detail: DeviceDetail = {
+      ...device,
+      owner: owner.key,
+      ip: `10.0.${ipSubnet}.${ipHost}`,
+      lastSeen: now.toISOString(),
+      connection: seed % 2 === 0 ? "wired" : "wireless",
+      accessPoint: seed % 2 === 0 ? undefined : "00:11:22:33:44:55",
+      signal: seed % 2 === 0 ? undefined : -40 + (seed % 6),
+      online: true,
+      networkName: `${owner.displayName}'s Network`,
+      traffic: {
+        intervalMinutes: interval,
+        start,
+        end,
+        totalRxBytes,
+        totalTxBytes,
+        samples,
+      },
+    };
+
+    return Promise.resolve(detail);
   }
 
   private updateDeviceLocks(devices: Device[], locked: boolean) {

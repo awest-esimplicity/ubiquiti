@@ -4,14 +4,20 @@ import type {
   ApiScheduleMetadata,
   ApiScheduleTarget,
   DashboardSummary,
+  DeviceDetailResponse,
   DeviceStatus,
+  DeviceTrafficSampleResponse,
+  DeviceTrafficSummaryResponse,
   UnregisteredClient,
 } from "@/lib/api/types";
 import type {
   DashboardMetadata,
   Device,
+  DeviceDetail,
   OwnerSummary,
   UnregisteredDevice,
+  DeviceTrafficSample,
+  DeviceTrafficSummary,
 } from "@/lib/domain/models";
 import type { DeviceSchedule, ScheduleMetadata, ScheduleTarget } from "@/lib/domain/schedules";
 
@@ -43,6 +49,49 @@ export function mapOwner(
     displayName: summary.display_name,
     pin: pin ?? undefined,
     devices: devices.map(mapDevice),
+  };
+}
+
+function mapTrafficSample(sample: DeviceTrafficSampleResponse): DeviceTrafficSample {
+  return {
+    timestamp: sample.timestamp,
+    rxBytes: sample.rx_bytes,
+    txBytes: sample.tx_bytes,
+    totalBytes: sample.total_bytes,
+  };
+}
+
+function mapTrafficSummary(summary: DeviceTrafficSummaryResponse | null | undefined): DeviceTrafficSummary | null {
+  if (!summary) {
+    return null;
+  }
+
+  return {
+    intervalMinutes: summary.interval_minutes,
+    start: summary.start ?? undefined,
+    end: summary.end ?? undefined,
+    totalRxBytes: summary.total_rx_bytes,
+    totalTxBytes: summary.total_tx_bytes,
+    samples: (summary.samples ?? []).map(mapTrafficSample),
+  };
+}
+
+export function mapDeviceDetail(detail: DeviceDetailResponse): DeviceDetail {
+  return {
+    name: detail.name,
+    type: normaliseDeviceType(detail.type),
+    mac: detail.mac,
+    vendor: detail.vendor ?? undefined,
+    locked: detail.locked,
+    owner: detail.owner,
+    ip: detail.ip ?? undefined,
+    lastSeen: detail.last_seen ?? undefined,
+    connection: detail.connection,
+    accessPoint: detail.access_point ?? undefined,
+    signal: detail.signal ?? undefined,
+    online: detail.online,
+    networkName: detail.network_name ?? undefined,
+    traffic: mapTrafficSummary(detail.traffic),
   };
 }
 

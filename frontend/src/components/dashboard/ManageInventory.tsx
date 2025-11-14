@@ -95,6 +95,34 @@ export function ManageInventory() {
     }
   };
 
+  const handleOwnerDelete = async (ownerKey: string, displayName: string) => {
+    setFeedback(undefined);
+    setError(undefined);
+    try {
+      await adminService.deleteOwner(ownerKey);
+      setOwners((prev) => prev.filter((owner) => owner.key !== ownerKey));
+      setFeedback(`Owner “${displayName}” removed.`);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "Unable to delete owner.";
+      setError(message);
+    }
+  };
+
+  const handleDeviceTypeDelete = async (name: string) => {
+    setFeedback(undefined);
+    setError(undefined);
+    try {
+      await adminService.deleteDeviceType(name);
+      setDeviceTypes((prev) =>
+        prev.filter((type) => type.toLowerCase() !== name.toLowerCase()),
+      );
+      setFeedback(`Device type “${name}” removed.`);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "Unable to delete device type.";
+      setError(message);
+    }
+  };
+
   return (
     <div className="space-y-10">
       <header className="space-y-2">
@@ -194,12 +222,27 @@ export function ManageInventory() {
             {sortedOwners.map((owner) => (
               <li
                 key={owner.key}
-                className="flex items-center justify-between rounded-xl border border-slate-800/60 bg-slate-950/50 px-3 py-2"
+                className="flex items-center justify-between gap-3 rounded-xl border border-slate-800/60 bg-slate-950/50 px-3 py-2"
               >
-                <span>{owner.displayName}</span>
+                <div>
+                  <span className="block text-slate-100">{owner.displayName}</span>
+                  <span className="font-mono text-[11px] uppercase tracking-[0.3em] text-slate-500">
+                    {owner.key}
+                  </span>
+                </div>
                 <span className="font-mono text-xs uppercase tracking-[0.3em] text-slate-500">
                   {owner.key}
                 </span>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="border-status-locked/40 text-status-locked hover:border-status-locked hover:text-status-locked"
+                  onClick={() => {
+                    void handleOwnerDelete(owner.key, owner.displayName);
+                  }}
+                >
+                  Remove
+                </Button>
               </li>
             ))}
             {sortedOwners.length === 0 ? (
@@ -214,11 +257,19 @@ export function ManageInventory() {
           <h3 className="text-sm font-semibold text-slate-100">Device types</h3>
           <ul className="mt-4 flex flex-wrap gap-2">
             {sortedDeviceTypes.map((type) => (
-              <li
-                key={type}
-                className="rounded-full border border-slate-700/60 bg-slate-950/50 px-3 py-1 text-xs uppercase tracking-[0.25em] text-slate-200"
-              >
-                {type}
+              <li key={type}>
+                <div className="inline-flex items-center gap-2 rounded-full border border-slate-700/60 bg-slate-950/50 px-3 py-1 text-xs uppercase tracking-[0.25em] text-slate-200">
+                  <span>{type}</span>
+                  <button
+                    type="button"
+                    className="text-status-locked hover:text-status-locked/80"
+                    onClick={() => {
+                      void handleDeviceTypeDelete(type);
+                    }}
+                  >
+                    ✕
+                  </button>
+                </div>
               </li>
             ))}
             {sortedDeviceTypes.length === 0 ? (

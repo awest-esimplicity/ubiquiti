@@ -41,6 +41,41 @@ export interface DeviceListResponse {
   devices: DeviceStatus[];
 }
 
+export interface DeviceTrafficSampleResponse {
+  timestamp: string;
+  rx_bytes: number;
+  tx_bytes: number;
+  total_bytes: number;
+}
+
+export interface DeviceTrafficSummaryResponse {
+  interval_minutes: number;
+  start?: string | null;
+  end?: string | null;
+  total_rx_bytes: number;
+  total_tx_bytes: number;
+  samples: DeviceTrafficSampleResponse[];
+}
+
+export type ApiDeviceConnection = "wired" | "wireless" | "unknown";
+
+export interface DeviceDetailResponse {
+  name: string;
+  owner: string;
+  type: string;
+  mac: string;
+  locked: boolean;
+  vendor?: string | null;
+  ip?: string | null;
+  last_seen?: string | null;
+  connection: ApiDeviceConnection;
+  access_point?: string | null;
+  signal?: number | null;
+  online: boolean;
+  network_name?: string | null;
+  traffic?: DeviceTrafficSummaryResponse | null;
+}
+
 export interface DeviceRegistrationRequest {
   mac: string;
   name?: string | null;

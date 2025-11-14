@@ -5,6 +5,7 @@ import type {
   UnregisteredDevice,
   DeviceRegistrationPayload,
   SessionIdentity,
+  DeviceDetail,
 } from "@/lib/domain/models";
 
 export interface LockControllerPort {
@@ -20,4 +21,5 @@ export interface LockControllerPort {
   verifyOwnerPin(ownerKey: string, pin: string): Promise<boolean>;
   registerDevice(ownerKey: string, payload: DeviceRegistrationPayload): Promise<Device>;
   whoAmI(): Promise<SessionIdentity>;
+  getDeviceDetail(mac: string, lookbackMinutes?: number): Promise<DeviceDetail>;
 }

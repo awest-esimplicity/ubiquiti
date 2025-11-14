@@ -3,7 +3,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { ICONS } from "@/components/icons";
 import { PinModal } from "@/components/modals/PinModal";
 import { ScheduleModal } from "@/components/modals/ScheduleModal";
-import { Button } from "@/components/ui/button";
+import { Button, buttonVariants } from "@/components/ui/button";
 import { lockControllerService } from "@/lib/bootstrap/lockController";
 import { MASTER_OWNER, MASTER_PIN } from "@/lib/domain/constants";
 import type {
@@ -838,18 +838,29 @@ export function FullConsole() {
                     <span>•</span>
                     <span>{device.vendor ?? "Unknown vendor"}</span>
                   </div>
-                  <Button
-                    size="sm"
-                    variant={device.locked ? "secondary" : "destructive"}
-                    onClick={() => handleToggleDevice(owner.key, device)}
-                    disabled={pendingDeviceMacs.has(device.mac) || state.refreshing}
-                  >
-                    {pendingDeviceMacs.has(device.mac)
-                      ? "Working…"
-                      : device.locked
-                        ? "Unlock"
-                        : "Lock"}
-                  </Button>
+                  <div className="flex items-center gap-2">
+                    <a
+                      href={`/devices/${encodeURIComponent(device.mac)}`}
+                      className={cn(
+                        buttonVariants({ variant: "ghost", size: "sm" }),
+                        "px-2 text-xs text-slate-300 hover:text-white",
+                      )}
+                    >
+                      Details
+                    </a>
+                    <Button
+                      size="sm"
+                      variant={device.locked ? "secondary" : "destructive"}
+                      onClick={() => handleToggleDevice(owner.key, device)}
+                      disabled={pendingDeviceMacs.has(device.mac) || state.refreshing}
+                    >
+                      {pendingDeviceMacs.has(device.mac)
+                        ? "Working…"
+                        : device.locked
+                          ? "Unlock"
+                          : "Lock"}
+                    </Button>
+                  </div>
                 </div>
               </article>
             ))}

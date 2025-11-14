@@ -37,6 +37,9 @@ class OwnerRepository(Protocol):
     def register(self, owner: Owner) -> None:
         ...
 
+    def delete(self, key: str) -> bool:
+        ...
+
 
 class InMemoryOwnerRepository(OwnerRepository):
     """Adapter that manages owners in memory."""
@@ -58,6 +61,9 @@ class InMemoryOwnerRepository(OwnerRepository):
 
     def register(self, owner: Owner) -> None:
         self._owners[owner.key.lower()] = owner
+
+    def delete(self, key: str) -> bool:
+        return self._owners.pop(key.lower(), None) is not None
 
 
 class SQLAlchemyOwnerRepository(OwnerRepository):
@@ -110,6 +116,15 @@ class SQLAlchemyOwnerRepository(OwnerRepository):
                 instance.pin = owner.pin
             session.commit()
 
+    def delete(self, key: str) -> bool:
+        with self._session_factory() as session:
+            instance = session.get(OwnerModel, key.lower())
+            if instance is None:
+                return False
+            session.delete(instance)
+            session.commit()
+            return True
+
 
 MASTER_OWNER = Owner("master", "Master Control", "5161")
 
@@ -158,6 +173,11 @@ def register_owner(owner: Owner) -> None:
     get_owner_repository().register(owner)
 
 
+def delete_owner(key: str) -> bool:
+    """Delete an owner entry."""
+    return get_owner_repository().delete(key)
+
+
 def all_owners() -> dict[str, Owner]:
     """Return a copy of the owner registry."""
     repository = get_owner_repository()
@@ -179,6 +199,7 @@ __all__ = [
     "get_owner_repository",
     "get_owner",
     "register_owner",
+    "delete_owner",
     "all_owners",
     "verify_owner_pin",
 ]

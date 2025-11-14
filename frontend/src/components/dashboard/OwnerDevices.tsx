@@ -1,8 +1,9 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 
-import { Button } from "@/components/ui/button";
+import { Button, buttonVariants } from "@/components/ui/button";
 import { lockControllerService } from "@/lib/bootstrap/lockController";
 import type { Device, OwnerSummary } from "@/lib/domain/models";
+import { cn } from "@/lib/utils/cn";
 
 interface OwnerDevicesProps {
   ownerKey: string;
@@ -311,7 +312,16 @@ function DeviceCard({ device, isPending, onToggle }: DeviceCardProps) {
           <p className="text-slate-300">{device.vendor ?? "Unknown"}</p>
         </div>
       </div>
-      <div className="mt-4 flex justify-end">
+      <div className="mt-4 flex items-center justify-between gap-3">
+        <a
+          href={`/devices/${encodeURIComponent(device.mac)}`}
+          className={cn(
+            buttonVariants({ variant: "ghost", size: "sm" }),
+            "px-2 text-xs text-slate-300 hover:text-white",
+          )}
+        >
+          Details
+        </a>
         <Button variant={actionVariant} size="sm" onClick={onToggle} disabled={isPending}>
           {isPending ? "Working..." : actionLabel}
         </Button>

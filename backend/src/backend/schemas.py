@@ -21,6 +21,39 @@ class DeviceListResponse(BaseModel):
     devices: list[DeviceStatus]
 
 
+class DeviceTrafficSample(BaseModel):
+    timestamp: datetime
+    rx_bytes: int = Field(..., ge=0)
+    tx_bytes: int = Field(..., ge=0)
+    total_bytes: int = Field(..., ge=0)
+
+
+class DeviceTrafficSummary(BaseModel):
+    interval_minutes: int = Field(..., ge=1)
+    start: datetime | None = None
+    end: datetime | None = None
+    total_rx_bytes: int = Field(..., ge=0)
+    total_tx_bytes: int = Field(..., ge=0)
+    samples: list[DeviceTrafficSample] = Field(default_factory=list)
+
+
+class DeviceDetail(BaseModel):
+    name: str
+    owner: str
+    type: str
+    mac: str
+    locked: bool
+    vendor: str | None = None
+    ip: str | None = None
+    last_seen: datetime | None = None
+    connection: Literal["wired", "wireless", "unknown"] = "unknown"
+    access_point: str | None = None
+    signal: float | None = None
+    online: bool = False
+    network_name: str | None = None
+    traffic: DeviceTrafficSummary | None = None
+
+
 class DeviceRegistrationRequest(BaseModel):
     name: str | None = None
     type: str | None = None

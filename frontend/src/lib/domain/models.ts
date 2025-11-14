@@ -8,6 +8,36 @@ export interface Device {
   locked: boolean;
 }
 
+export type DeviceConnectionType = "wired" | "wireless" | "unknown";
+
+export interface DeviceTrafficSample {
+  timestamp: string;
+  rxBytes: number;
+  txBytes: number;
+  totalBytes: number;
+}
+
+export interface DeviceTrafficSummary {
+  intervalMinutes: number;
+  start?: string;
+  end?: string;
+  totalRxBytes: number;
+  totalTxBytes: number;
+  samples: DeviceTrafficSample[];
+}
+
+export interface DeviceDetail extends Device {
+  owner: string;
+  ip?: string;
+  lastSeen?: string;
+  connection: DeviceConnectionType;
+  accessPoint?: string;
+  signal?: number;
+  online: boolean;
+  networkName?: string;
+  traffic?: DeviceTrafficSummary | null;
+}
+
 export interface DeviceRegistrationPayload {
   mac: string;
   name?: string;

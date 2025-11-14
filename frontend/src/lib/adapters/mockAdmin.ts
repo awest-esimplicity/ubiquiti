@@ -82,4 +82,17 @@ export class MockAdminAdapter implements AdminPort {
     }
     return this.listDeviceTypes();
   }
+
+  deleteOwner(ownerKey: string): Promise<void> {
+    this.owners = this.owners.filter((owner) => owner.key !== ownerKey);
+    snapshotData.owners = snapshotData.owners.filter((owner) => owner.key !== ownerKey);
+    return Promise.resolve();
+  }
+
+  deleteDeviceType(name: string): Promise<void> {
+    this.deviceTypes = this.deviceTypes.filter(
+      (type) => type.toLowerCase() !== name.trim().toLowerCase(),
+    );
+    return Promise.resolve();
+  }
 }

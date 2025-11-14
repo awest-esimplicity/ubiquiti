@@ -18,6 +18,10 @@ export class ApiAdminAdapter implements AdminPort {
     return this.client.createOwner({ displayName, pin });
   }
 
+  async deleteOwner(ownerKey: string): Promise<void> {
+    await this.client.deleteOwner(ownerKey);
+  }
+
   async listDeviceTypes(): Promise<string[]> {
     const response = await this.client.listDeviceTypes();
     return response.types;
@@ -26,5 +30,9 @@ export class ApiAdminAdapter implements AdminPort {
   async createDeviceType(name: string): Promise<string[]> {
     const response = await this.client.createDeviceType({ name });
     return response.types;
+  }
+
+  async deleteDeviceType(name: string): Promise<void> {
+    await this.client.deleteDeviceType(name);
   }
 }

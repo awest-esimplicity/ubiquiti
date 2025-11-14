@@ -2,10 +2,10 @@
 
 from __future__ import annotations
 
-from collections.abc import Iterable, Iterator
+from collections.abc import Iterable, Iterator, Mapping
 from contextlib import contextmanager
-from datetime import UTC, datetime
-from typing import TYPE_CHECKING, Literal, TypedDict
+from datetime import UTC, datetime, timedelta
+from typing import TYPE_CHECKING, Any, Literal, TypedDict
 
 from .owners import get_owner_repository
 from .ubiquiti.config import settings
@@ -14,7 +14,11 @@ from .ubiquiti.firewall import FirewallManager
 from .ubiquiti.lock import DeviceLocker
 from .ubiquiti.network import NetworkDeviceService
 from .ubiquiti.unifi import UniFiAPIError, UniFiClient
-from .ubiquiti.utils import lookup_mac_vendor, suppress_insecure_request_warning
+from .ubiquiti.utils import (
+    logger,
+    lookup_mac_vendor,
+    suppress_insecure_request_warning,
+)
 
 if TYPE_CHECKING:
     from .schemas import DeviceTarget
@@ -53,6 +57,39 @@ class OwnerSummaryRecord(TypedDict):
     unlocked_devices: int
 
 
+class DeviceTrafficSample(TypedDict):
+    timestamp: datetime
+    rx_bytes: int
+    tx_bytes: int
+    total_bytes: int
+
+
+class DeviceTrafficSummary(TypedDict):
+    interval_minutes: int
+    start: datetime | None
+    end: datetime | None
+    total_rx_bytes: int
+    total_tx_bytes: int
+    samples: list[DeviceTrafficSample]
+
+
+class DeviceDetailRecord(TypedDict):
+    name: str
+    owner: str
+    type: str
+    mac: str
+    locked: bool
+    vendor: str | None
+    ip: str | None
+    last_seen: datetime | None
+    connection: Literal["wired", "wireless", "unknown"]
+    access_point: str | None
+    signal: float | None
+    online: bool
+    network_name: str | None
+    traffic: DeviceTrafficSummary | None
+
+
 @contextmanager
 def locker_context() -> Iterator[tuple[FirewallManager, DeviceLocker]]:
     """Yield a configured FirewallManager and DeviceLocker pair."""
@@ -82,10 +119,103 @@ def _timestamp_to_datetime(value: object) -> datetime | None:
             return None
     else:
         return None
+    if ts > 10**11:  # values returned in milliseconds
+        ts /= 1000.0
     try:
         return datetime.fromtimestamp(ts, tz=UTC).astimezone()
     except (OverflowError, OSError):
         return None
+
+
+def _safe_int(value: object) -> int:
+    if isinstance(value, bool):
+        return int(value)
+    if isinstance(value, (int, float)):
+        return int(value)
+    if isinstance(value, str):
+        try:
+            return int(float(value))
+        except ValueError:
+            return 0
+    return 0
+
+
+def _safe_float(value: object) -> float | None:
+    if isinstance(value, (int, float)):
+        return float(value)
+    if isinstance(value, str):
+        try:
+            return float(value)
+        except ValueError:
+            return None
+    return None
+
+
+def _extract_string(payload: Mapping[str, Any] | None, key: str) -> str | None:
+    if not payload:
+        return None
+    value = payload.get(key)
+    if isinstance(value, str):
+        stripped = value.strip()
+        return stripped or None
+    return None
+
+
+def _infer_connection_type(payload: Mapping[str, Any] | None) -> Literal["wired", "wireless", "unknown"]:
+    if not payload:
+        return "unknown"
+    is_wired = payload.get("is_wired")
+    if isinstance(is_wired, bool):
+        return "wired" if is_wired else "wireless"
+    wired = payload.get("wired")
+    if isinstance(wired, bool):
+        return "wired" if wired else "wireless"
+    radio = _extract_string(payload, "radio")
+    if radio:
+        return "wireless"
+    return "unknown"
+
+
+def _build_traffic_summary(
+    entries: list[Mapping[str, Any]], lookback_minutes: int
+) -> DeviceTrafficSummary | None:
+    samples: list[DeviceTrafficSample] = []
+    total_rx = 0
+    total_tx = 0
+    start_dt: datetime | None = None
+    end_dt: datetime | None = None
+
+    for entry in entries:
+        timestamp = _timestamp_to_datetime(entry.get("time"))
+        if timestamp is None:
+            continue
+        rx_value = max(_safe_int(entry.get("rx_bytes")), 0)
+        tx_value = max(_safe_int(entry.get("tx_bytes")), 0)
+        total_rx += rx_value
+        total_tx += tx_value
+        start_dt = timestamp if start_dt is None or timestamp < start_dt else start_dt
+        end_dt = timestamp if end_dt is None or timestamp > end_dt else end_dt
+        samples.append(
+            {
+                "timestamp": timestamp,
+                "rx_bytes": rx_value,
+                "tx_bytes": tx_value,
+                "total_bytes": rx_value + tx_value,
+            }
+        )
+
+    if not samples:
+        return None
+
+    samples.sort(key=lambda item: item["timestamp"])
+    return {
+        "interval_minutes": lookback_minutes,
+        "start": start_dt,
+        "end": end_dt,
+        "total_rx_bytes": total_rx,
+        "total_tx_bytes": total_tx,
+        "samples": samples,
+    }
 
 
 def get_registered_device_records() -> list[DeviceRecord]:
@@ -320,10 +450,118 @@ def get_unregistered_client_records() -> list[ClientRecord]:
                     "last_seen": _timestamp_to_datetime(client.get("last_seen")),
                     "locked": locked,
                 }
-            )
+        )
 
         records.sort(
             key=lambda item: item["last_seen"] or datetime.fromtimestamp(0, tz=UTC),
             reverse=True,
         )
         return records
+
+
+def get_device_detail_record(
+    mac: str,
+    *,
+    lookback_minutes: int = 60,
+) -> DeviceDetailRecord:
+    """Return enriched metadata for a registered device."""
+    mac_normalized = (mac or "").strip().lower()
+    if not mac_normalized:
+        raise KeyError("MAC address must be provided.")
+
+    lookback = max(5, int(lookback_minutes))
+    device_repo = get_device_repository()
+    device = device_repo.get_by_mac(mac_normalized)
+    if device is None:
+        raise KeyError(mac_normalized)
+
+    vendor = lookup_mac_vendor(mac_normalized)
+
+    with locker_context() as (firewall, locker):
+        rules = firewall.list_rules()
+        locked = locker.is_device_locked(device, rules)
+        service = NetworkDeviceService(firewall.client)
+
+        detail_info: Mapping[str, Any] | None = None
+        active_info: Mapping[str, Any] | None = None
+
+        try:
+            detail_info = service.get_client_detail(mac_normalized)
+        except UniFiAPIError as exc:
+            logger.warning("Failed to fetch UniFi detail for {}: {}", mac_normalized, exc)
+
+        if detail_info:
+            # If the device is currently active the detail payload often contains live stats.
+            active_info = detail_info if detail_info.get("is_wired") is not None else None
+
+        if active_info is None:
+            try:
+                active_clients = service.list_active_clients()
+            except UniFiAPIError as exc:
+                logger.warning(
+                    "Failed to enumerate active clients for {}: {}", mac_normalized, exc
+                )
+                active_clients = []
+
+            for entry in active_clients:
+                entry_mac = entry.get("mac")
+                if isinstance(entry_mac, str) and entry_mac.lower() == mac_normalized:
+                    active_info = entry
+                    break
+
+        merged_info: Mapping[str, Any] | None = active_info or detail_info
+        online = active_info is not None
+        ip_address = (
+            _extract_string(merged_info, "ip")
+            or _extract_string(merged_info, "fixed_ip")
+            or _extract_string(merged_info, "network")
+        )
+        last_seen = _timestamp_to_datetime(
+            (merged_info or detail_info or {}).get("last_seen")
+        )
+        signal = _safe_float((merged_info or detail_info or {}).get("signal"))
+        access_point = _extract_string(merged_info or detail_info, "ap_mac") or _extract_string(
+            merged_info or detail_info, "sw_mac"
+        )
+        connection = _infer_connection_type(merged_info or detail_info)
+        network_name = (
+            _extract_string(merged_info or detail_info, "hostname")
+            or _extract_string(merged_info or detail_info, "name")
+        )
+
+        now_dt = datetime.now(tz=UTC).astimezone()
+        start_dt = now_dt - timedelta(minutes=lookback)
+        traffic_summary: DeviceTrafficSummary | None = None
+        try:
+            traffic_entries = service.get_client_traffic(
+                mac_normalized,
+                start=start_dt,
+                end=now_dt,
+                resolution="5minutes",
+                attrs=("rx_bytes", "tx_bytes"),
+            )
+        except UniFiAPIError as exc:
+            logger.warning(
+                "Failed to fetch UniFi traffic samples for {}: {}", mac_normalized, exc
+            )
+            traffic_entries = []
+
+        if traffic_entries:
+            traffic_summary = _build_traffic_summary(traffic_entries, lookback)
+
+    return {
+        "name": device.name,
+        "owner": device.owner,
+        "type": device.type,
+        "mac": device.mac,
+        "locked": locked,
+        "vendor": vendor,
+        "ip": ip_address,
+        "last_seen": last_seen,
+        "connection": connection,
+        "access_point": access_point,
+        "signal": signal,
+        "online": online,
+        "network_name": network_name,
+        "traffic": traffic_summary,
+    }

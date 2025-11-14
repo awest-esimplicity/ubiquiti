@@ -10,7 +10,10 @@ os.environ["UBIQUITI_DB_URL"] = ""
 
 from backend.app import app  # noqa: E402
 from backend.owners import InMemoryOwnerRepository, Owner  # noqa: E402
-from backend.device_types import _DEVICE_TYPES_LOCK, _DEVICE_TYPES  # type: ignore[attr-defined]  # noqa: E402
+from backend.device_types import (  # type: ignore[attr-defined]  # noqa: E402
+    _DEVICE_TYPES_LOCK,
+    _DEVICE_TYPES,
+)
 
 
 client = TestClient(app)
@@ -35,6 +38,11 @@ def test_create_owner_and_list(monkeypatch):
     owners = list_response.json()["owners"]
     assert any(owner["key"] == "new-owner" for owner in owners)
 
+    delete_response = client.delete(f"/api/owners/{body['key']}")
+    assert delete_response.status_code == 204
+    owners_after = client.get("/api/owners/all").json()["owners"]
+    assert all(owner["key"] != "new-owner" for owner in owners_after)
+
 
 def test_create_device_type(monkeypatch, tmp_path):
     from backend import device_types  # noqa: E402
@@ -53,3 +61,8 @@ def test_create_device_type(monkeypatch, tmp_path):
     list_response = client.get("/api/device-types")
     assert list_response.status_code == 200
     assert "Smart Speaker" in list_response.json()["types"]
+
+    delete_response = client.delete("/api/device-types/Smart Speaker")
+    assert delete_response.status_code == 204
+    remaining = client.get("/api/device-types").json()["types"]
+    assert "Smart Speaker" not in remaining

@@ -5,6 +5,7 @@ import type {
   ApiScheduleListResponse,
   DashboardSummary,
   DeviceActionRequest,
+  DeviceDetailResponse,
   DeviceRegistrationRequest,
   DeviceListResponse,
   DeviceStatus,
@@ -97,12 +98,31 @@ export class UnifiApiClient {
     });
   }
 
+  async deleteOwner(ownerKey: string): Promise<void> {
+    await this.request(`/api/owners/${ownerKey}`, { method: "DELETE" });
+  }
+
   async listOwnerDevices(ownerKey: string, signal?: AbortSignal): Promise<DeviceListResponse> {
     return this.request<DeviceListResponse>(`/api/owners/${ownerKey}/devices`, { signal });
   }
 
   async listUnregisteredClients(signal?: AbortSignal): Promise<UnregisteredClientsResponse> {
     return this.request<UnregisteredClientsResponse>("/api/clients/unregistered", { signal });
+  }
+
+  async getDeviceDetail(
+    mac: string,
+    lookbackMinutes?: number,
+    signal?: AbortSignal,
+  ): Promise<DeviceDetailResponse> {
+    const encodedMac = encodeURIComponent(mac);
+    const params = new URLSearchParams();
+    if (typeof lookbackMinutes === "number") {
+      params.set("lookback_minutes", String(lookbackMinutes));
+    }
+    const query = params.toString();
+    const path = `/api/devices/${encodedMac}/detail${query ? `?${query}` : ""}`;
+    return this.request<DeviceDetailResponse>(path, { signal });
   }
 
   async lockDevices(targets: DeviceTarget[], unlock = false): Promise<void> {
@@ -163,6 +183,10 @@ export class UnifiApiClient {
       method: "POST",
       body: payload,
     });
+  }
+
+  async deleteDeviceType(name: string): Promise<void> {
+    await this.request(`/api/device-types/${encodeURIComponent(name)}`, { method: "DELETE" });
   }
 
   async listSchedules(signal?: AbortSignal): Promise<ApiScheduleListResponse> {

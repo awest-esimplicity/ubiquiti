@@ -2,7 +2,8 @@
 
 from __future__ import annotations
 
-from typing import Any
+from datetime import UTC, datetime, timedelta
+from typing import Any, Literal, Sequence
 
 from .unifi import UniFiClient
 from .utils import logger, suppress_insecure_request_warning
@@ -38,6 +39,63 @@ class NetworkDeviceService:
             "Fetched active clients"
         )
         return clients
+
+    def get_client_detail(self, mac: str) -> dict[str, Any] | None:
+        """Return detailed information for a specific client device."""
+        if not mac:
+            return None
+        suppress_insecure_request_warning(self._client.verify_ssl)
+        response = self._client.request(
+            "get", self._path(f"stat/user/{mac.lower()}")
+        )
+        data = self._extract_data(response)
+        return data[0] if data else None
+
+    def get_client_traffic(
+        self,
+        mac: str,
+        *,
+        start: datetime | None = None,
+        end: datetime | None = None,
+        resolution: Literal["5minutes", "hourly"] = "5minutes",
+        attrs: Sequence[str] | None = None,
+    ) -> list[dict[str, Any]]:
+        """Return historical traffic samples for a client device."""
+        if not mac:
+            return []
+
+        resolution_value = resolution if resolution in {"5minutes", "hourly"} else "5minutes"
+
+        end_dt = (end or datetime.now(tz=UTC)).astimezone(UTC)
+        start_dt = (start or end_dt - (timedelta(hours=12) if resolution_value == "5minutes" else timedelta(days=7))).astimezone(UTC)
+        if start_dt >= end_dt:
+            start_dt = end_dt - (timedelta(minutes=5) if resolution_value == "5minutes" else timedelta(hours=1))
+
+        payload_attrs = ["time", "rx_bytes", "tx_bytes"]
+        if attrs:
+            payload_attrs = ["time"] + [value for value in attrs if value != "time"]
+
+        payload = {
+            "mac": mac.lower(),
+            "start": int(start_dt.timestamp() * 1000),
+            "end": int(end_dt.timestamp() * 1000),
+            "attrs": payload_attrs,
+        }
+
+        suppress_insecure_request_warning(self._client.verify_ssl)
+        response = self._client.request(
+            "post",
+            self._path(f"stat/report/{resolution_value}.user"),
+            json=payload,
+        )
+        samples = self._extract_data(response)
+        logger.bind(
+            site=self._site,
+            mac=mac.lower(),
+            sample_count=len(samples),
+            resolution=resolution_value,
+        ).debug("Fetched UniFi traffic samples for client")
+        return samples
 
     def _path(self, suffix: str) -> str:
         return f"/api/s/{self._site}/{suffix.lstrip('/')}"

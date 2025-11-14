@@ -1,8 +1,15 @@
 import { UnifiApiClient } from "@/lib/api/client";
-import { mapDevice, mapMetadata, mapOwner, mapUnregistered } from "@/lib/api/transformers";
+import {
+  mapDevice,
+  mapDeviceDetail,
+  mapMetadata,
+  mapOwner,
+  mapUnregistered,
+} from "@/lib/api/transformers";
 import type {
   DashboardSnapshot,
   Device,
+  DeviceDetail,
   DeviceRegistrationPayload,
   OwnerSummary,
   SessionIdentity,
@@ -103,5 +110,10 @@ export class ApiLockControllerAdapter implements LockControllerPort {
       forwardedFor: response.forwardedFor ?? [],
       probableClients: (response.probableClients ?? []).map(mapUnregistered),
     };
+  }
+
+  async getDeviceDetail(mac: string, lookbackMinutes?: number): Promise<DeviceDetail> {
+    const detail = await this.client.getDeviceDetail(mac, lookbackMinutes);
+    return mapDeviceDetail(detail);
   }
 }

@@ -12,11 +12,19 @@ export class AdminService {
     return this.port.createOwner(displayName, pin);
   }
 
+  async deleteOwner(ownerKey: string): Promise<void> {
+    await this.port.deleteOwner(ownerKey);
+  }
+
   async listDeviceTypes(): Promise<string[]> {
     return this.port.listDeviceTypes();
   }
 
   async createDeviceType(name: string): Promise<string[]> {
     return this.port.createDeviceType(name);
+  }
+
+  async deleteDeviceType(name: string): Promise<void> {
+    await this.port.deleteDeviceType(name);
   }
 }

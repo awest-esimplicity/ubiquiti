@@ -4,6 +4,7 @@ import type {
   DeviceRegistrationPayload,
   OwnerSummary,
   SessionIdentity,
+  DeviceDetail,
   UnregisteredDevice,
 } from "@/lib/domain/models";
 import type { LockControllerPort } from "@/lib/ports/LockControllerPort";
@@ -57,5 +58,9 @@ export class LockControllerService {
 
   async whoAmI(): Promise<SessionIdentity> {
     return this.port.whoAmI();
+  }
+
+  async getDeviceDetail(mac: string, lookbackMinutes?: number): Promise<DeviceDetail> {
+    return this.port.getDeviceDetail(mac, lookbackMinutes);
   }
 }

@@ -89,7 +89,21 @@ def add_device_type(label: str) -> str:
         _DEVICE_TYPES.setdefault(canonical, normalized)
         if updated:
             _save()
-        return _DEVICE_TYPES[canonical]
+    return _DEVICE_TYPES[canonical]
+
+
+def remove_device_type(label: str) -> bool:
+    """Remove a device type entry; returns True if it existed."""
+    _load()
+    canonical = label.strip().lower()
+    if not canonical or canonical in {item.lower() for item in _DEFAULT_DEVICE_TYPES}:
+        return False
+    with _DEVICE_TYPES_LOCK:
+        if canonical not in _DEVICE_TYPES:
+            return False
+        del _DEVICE_TYPES[canonical]
+        _save()
+        return True
 
 
 __all__ = ["list_device_types", "add_device_type"]

@@ -9,12 +9,13 @@ from typing import Annotated
 from fastapi import APIRouter, HTTPException, Query, Request, Response, status
 
 from . import schemas
-from .device_types import add_device_type, list_device_types
-from .owners import Owner, get_owner_repository, register_owner
+from .device_types import add_device_type, list_device_types, remove_device_type
+from .owners import Owner, delete_owner, get_owner_repository, register_owner
 from .services import (
     DeviceRecord,
     apply_lock_action,
     build_device_from_target,
+    get_device_detail_record,
     get_registered_device_records,
     get_unregistered_client_records,
     register_device_for_owner,
@@ -130,6 +131,28 @@ def list_devices(
     )
 
 
+@router.get(
+    "/devices/{mac}/detail",
+    response_model=schemas.DeviceDetail,
+)
+def get_device_detail(
+    mac: str,
+    lookback_minutes: Annotated[
+        int,
+        Query(
+            ge=5,
+            le=24 * 60,
+            description="Number of minutes of traffic history to include in the summary.",
+        ),
+    ] = 60,
+) -> schemas.DeviceDetail:
+    try:
+        record = get_device_detail_record(mac, lookback_minutes=lookback_minutes)
+    except KeyError:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Device not found.")
+    return schemas.DeviceDetail(**record)
+
+
 @router.get("/owners", response_model=schemas.OwnersResponse)
 def list_owner_summaries() -> schemas.OwnersResponse:
     try:
@@ -191,6 +214,22 @@ def create_owner(payload: schemas.OwnerCreateRequest) -> schemas.OwnerInfo:
     owner = Owner(key=key, display_name=display_name, pin=pin)
     register_owner(owner)
     return schemas.OwnerInfo(key=owner.key, display_name=owner.display_name)
+
+
+@router.delete(
+    "/owners/{owner_key}",
+    status_code=status.HTTP_204_NO_CONTENT,
+    tags=["owners"],
+)
+def delete_owner_entry(owner_key: str) -> Response:
+    if owner_key.lower() in {"master"}:
+        raise HTTPException(
+            status.HTTP_403_FORBIDDEN,
+            detail="Cannot delete the master owner.",
+        )
+    if not delete_owner(owner_key):
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Owner not found.")
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
 @router.post(
@@ -524,6 +563,17 @@ def create_device_type(payload: schemas.DeviceTypeCreateRequest) -> schemas.Devi
             detail=str(exc),
         ) from exc
     return schemas.DeviceTypesResponse(types=list_device_types())
+
+
+@router.delete(
+    "/device-types/{name}",
+    status_code=status.HTTP_204_NO_CONTENT,
+    tags=["devices"],
+)
+def delete_device_type(name: str) -> Response:
+    if not remove_device_type(name):
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Device type not found.")
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
 @router.post(
