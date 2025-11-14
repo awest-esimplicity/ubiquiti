@@ -36,6 +36,7 @@ export interface DeviceDetail extends Device {
   online: boolean;
   networkName?: string;
   traffic?: DeviceTrafficSummary | null;
+  destinations: string[];
 }
 
 export interface DeviceRegistrationPayload {

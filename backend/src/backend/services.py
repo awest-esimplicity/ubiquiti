@@ -88,6 +88,7 @@ class DeviceDetailRecord(TypedDict):
     online: bool
     network_name: str | None
     traffic: DeviceTrafficSummary | None
+    destinations: list[str]
 
 
 @contextmanager
@@ -549,6 +550,31 @@ def get_device_detail_record(
         if traffic_entries:
             traffic_summary = _build_traffic_summary(traffic_entries, lookback)
 
+        destinations: list[str] = []
+        destination_candidates: list[str] = []
+        for payload in (merged_info, detail_info):
+            if isinstance(payload, Mapping):
+                destination_candidates.extend(
+                    [
+                        payload.get("essid"),
+                        payload.get("ap_name"),
+                        payload.get("ap_mac"),
+                        payload.get("network"),
+                        payload.get("sw_name"),
+                        payload.get("sw_mac"),
+                        payload.get("gw_name"),
+                        payload.get("gw_mac"),
+                        payload.get("site_name"),
+                    ]
+                )
+        for value in destination_candidates:
+            if isinstance(value, str):
+                normalized = value.strip()
+                if normalized and normalized.lower() not in {item.lower() for item in destinations}:
+                    destinations.append(normalized)
+        if access_point and access_point not in destinations:
+            destinations.append(access_point)
+
     return {
         "name": device.name,
         "owner": device.owner,
@@ -564,4 +590,5 @@ def get_device_detail_record(
         "online": online,
         "network_name": network_name,
         "traffic": traffic_summary,
+        "destinations": destinations,
     }

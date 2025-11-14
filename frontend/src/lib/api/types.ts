@@ -74,6 +74,7 @@ export interface DeviceDetailResponse {
   online: boolean;
   network_name?: string | null;
   traffic?: DeviceTrafficSummaryResponse | null;
+  destinations?: string[] | null;
 }
 
 export interface DeviceRegistrationRequest {

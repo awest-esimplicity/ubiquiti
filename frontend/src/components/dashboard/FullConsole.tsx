@@ -775,103 +775,164 @@ export function FullConsole() {
         </div>
       ) : null}
 
-      {filtered.owners.map((owner, index) => (
-        <section
-          key={owner.key}
-          className={cn(
-            "space-y-4 rounded-3xl border border-slate-700/50 bg-slate-900/40 p-6 shadow-inner transition",
-            index > 0 ? "relative" : "",
-          )}
-        >
-          {index > 0 ? <div className="absolute inset-x-6 -top-4 h-px bg-slate-800/70" /> : null}
-          <div className="flex flex-wrap items-center justify-between gap-4 border-b border-slate-700/40 pb-4">
-            <div>
-              <p className="text-[11px] uppercase tracking-[0.35em] text-slate-500">Owner</p>
-              <h2 className="mt-1 text-2xl font-semibold text-slate-50">{owner.displayName}</h2>
-            </div>
-            <div className="flex gap-3">
-              <Button variant="outline" onClick={() => handleOpenSchedule(owner)}>
-                Schedule
-              </Button>
-              <Button
-                variant="destructive"
-                onClick={() => handleOwnerBulk(owner.key, true)}
-                disabled={pendingOwnerKeys.has(owner.key) || state.refreshing}
-              >
-                {pendingOwnerKeys.has(owner.key) ? "Working…" : "Lock all"}
-              </Button>
-              <Button
-                variant="secondary"
-                onClick={() => handleOwnerBulk(owner.key, false)}
-                disabled={pendingOwnerKeys.has(owner.key) || state.refreshing}
-              >
-                {pendingOwnerKeys.has(owner.key) ? "Working…" : "Unlock all"}
-              </Button>
-            </div>
-          </div>
+      {filtered.owners.map((owner, index) => {
+        const lockedCount = owner.devices.filter((device) => device.locked).length;
+        const typeCounts = owner.devices.reduce<Record<string, number>>((acc, device) => {
+          acc[device.type] = (acc[device.type] ?? 0) + 1;
+          return acc;
+        }, {});
+        const typeEntries = Object.entries(typeCounts).sort(([a], [b]) => a.localeCompare(b));
+        const unknownVendors = owner.devices.filter(
+          (device) => !device.vendor || device.vendor.toLowerCase() === "unknown vendor",
+        ).length;
+        const metrics: Array<{ label: string; value: string }> = [
+          { label: "Total devices", value: String(owner.devices.length) },
+          { label: "Locked devices", value: String(lockedCount) },
+          { label: "Unlocked devices", value: String(owner.devices.length - lockedCount) },
+          { label: "Unknown vendors", value: String(unknownVendors) },
+        ];
 
-          <div className="grid gap-6 md:grid-cols-2 xl:grid-cols-4">
-            {owner.devices.map((device) => (
-              <article
-                key={device.mac}
-                className="overflow-hidden rounded-2xl border border-slate-700/40 bg-slate-900/50 p-5 transition hover:border-brand-blue/50 hover:bg-slate-900/70"
-              >
-                <div>
-                  <h3 className="text-lg font-medium text-slate-50">{device.name}</h3>
-                  <p className="text-xs text-slate-500">{device.mac}</p>
-                  <span
-                    className={cn(
-                      "mt-3 inline-flex items-center gap-1 rounded-full border px-3 py-1 text-xs font-medium",
-                      device.locked
-                        ? "border-status-locked/40 text-status-locked"
-                        : "border-status-unlocked/40 text-status-unlocked",
+        return (
+          <section
+            key={owner.key}
+            className={cn(
+              "space-y-4 rounded-3xl border border-slate-700/50 bg-slate-900/40 p-6 shadow-inner transition",
+              index > 0 ? "relative" : "",
+            )}
+          >
+            {index > 0 ? <div className="absolute inset-x-6 -top-4 h-px bg-slate-800/70" /> : null}
+            <div className="flex flex-wrap items-center justify-between gap-4 border-b border-slate-700/40 pb-4">
+              <div>
+                <p className="text-[11px] uppercase tracking-[0.35em] text-slate-500">Owner</p>
+                <h2 className="mt-1 text-2xl font-semibold text-slate-50">{owner.displayName}</h2>
+              </div>
+              <div className="flex gap-3">
+                <Button variant="outline" onClick={() => handleOpenSchedule(owner)}>
+                  Schedule
+                </Button>
+                <Button
+                  variant="destructive"
+                  onClick={() => handleOwnerBulk(owner.key, true)}
+                  disabled={pendingOwnerKeys.has(owner.key) || state.refreshing}
+                >
+                  {pendingOwnerKeys.has(owner.key) ? "Working…" : "Lock all"}
+                </Button>
+                <Button
+                  variant="secondary"
+                  onClick={() => handleOwnerBulk(owner.key, false)}
+                  disabled={pendingOwnerKeys.has(owner.key) || state.refreshing}
+                >
+                  {pendingOwnerKeys.has(owner.key) ? "Working…" : "Unlock all"}
+                </Button>
+              </div>
+            </div>
+
+            <details className="rounded-2xl border border-slate-700/40 bg-slate-950/40 px-4 py-3 text-slate-200">
+              <summary className="cursor-pointer text-sm font-medium text-slate-100">
+                Activity summary
+              </summary>
+              <div className="mt-3 overflow-hidden rounded-2xl border border-slate-800/40 bg-slate-950/30">
+                <div className="divide-y divide-slate-800/60">
+                  {metrics.map((metric) => (
+                    <div
+                      key={`${owner.key}-${metric.label}`}
+                      className="flex items-center justify-between gap-6 px-4 py-3"
+                    >
+                      <span className="text-xs uppercase tracking-[0.3em] text-slate-500">
+                        {metric.label}
+                      </span>
+                      <span className="text-base font-semibold text-slate-50">{metric.value}</span>
+                    </div>
+                  ))}
+                  <div className="px-4 py-3">
+                    <p className="text-xs uppercase tracking-[0.3em] text-slate-500">
+                      Device types
+                    </p>
+                    {typeEntries.length > 0 ? (
+                      <ul className="mt-2 space-y-2 text-sm text-slate-200">
+                        {typeEntries.map(([type, count]) => (
+                          <li
+                            key={`${owner.key}-${type}`}
+                            className="flex items-center justify-between gap-4 capitalize"
+                          >
+                            <span>{type}</span>
+                            <span className="text-slate-300">{count}</span>
+                          </li>
+                        ))}
+                      </ul>
+                    ) : (
+                      <p className="mt-2 text-xs text-slate-500">
+                        No device types available in the current filters.
+                      </p>
                     )}
-                  >
-                    {device.locked ? ICONS.locked : ICONS.unlocked}
-                    {device.locked ? "Locked" : "Unlocked"}
-                  </span>
-                </div>
-
-                <div className="mt-4 flex flex-wrap items-center justify-between gap-3 text-xs text-slate-400">
-                  <div className="flex flex-wrap items-center gap-2 text-slate-300">
-                    <span className="text-sm capitalize text-slate-200">{device.type}</span>
-                    <span>•</span>
-                    <span>{device.vendor ?? "Unknown vendor"}</span>
                   </div>
-                  <div className="flex items-center gap-2">
-                    <a
-                      href={`/devices?mac=${encodeURIComponent(device.mac)}`}
+                </div>
+              </div>
+            </details>
+
+            <div className="grid gap-6 md:grid-cols-2 xl:grid-cols-4">
+              {owner.devices.map((device) => (
+                <article
+                  key={device.mac}
+                  className="overflow-hidden rounded-2xl border border-slate-700/40 bg-slate-900/50 p-5 transition hover:border-brand-blue/50 hover:bg-slate-900/70"
+                >
+                  <div>
+                    <h3 className="text-lg font-medium text-slate-50">{device.name}</h3>
+                    <p className="text-xs text-slate-500">{device.mac}</p>
+                    <span
                       className={cn(
-                        buttonVariants({ variant: "ghost", size: "sm" }),
-                        "px-2 text-xs text-slate-300 hover:text-white",
+                        "mt-3 inline-flex items-center gap-1 rounded-full border px-3 py-1 text-xs font-medium",
+                        device.locked
+                          ? "border-status-locked/40 text-status-locked"
+                          : "border-status-unlocked/40 text-status-unlocked",
                       )}
                     >
-                      Details
-                    </a>
-                    <Button
-                      size="sm"
-                      variant={device.locked ? "secondary" : "destructive"}
-                      onClick={() => handleToggleDevice(owner.key, device)}
-                      disabled={pendingDeviceMacs.has(device.mac) || state.refreshing}
-                    >
-                      {pendingDeviceMacs.has(device.mac)
-                        ? "Working…"
-                        : device.locked
-                          ? "Unlock"
-                          : "Lock"}
-                    </Button>
+                      {device.locked ? ICONS.locked : ICONS.unlocked}
+                      {device.locked ? "Locked" : "Unlocked"}
+                    </span>
                   </div>
-                </div>
-              </article>
-            ))}
-            {owner.devices.length === 0 ? (
-              <p className="rounded-xl border border-dashed border-slate-700/40 bg-slate-900/30 p-6 text-sm text-slate-400">
-                No devices match the current filters.
-              </p>
-            ) : null}
-          </div>
-        </section>
-      ))}
+
+                  <div className="mt-4 flex flex-wrap items-center justify-between gap-3 text-xs text-slate-400">
+                    <div className="flex flex-wrap items-center gap-2 text-slate-300">
+                      <span className="text-sm capitalize text-slate-200">{device.type}</span>
+                      <span>•</span>
+                      <span>{device.vendor ?? "Unknown vendor"}</span>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <a
+                        href={`/devices?mac=${encodeURIComponent(device.mac)}`}
+                        className={cn(
+                          buttonVariants({ variant: "ghost", size: "sm" }),
+                          "px-2 text-xs text-slate-300 hover:text-white",
+                        )}
+                      >
+                        Details
+                      </a>
+                      <Button
+                        size="sm"
+                        variant={device.locked ? "secondary" : "destructive"}
+                        onClick={() => handleToggleDevice(owner.key, device)}
+                        disabled={pendingDeviceMacs.has(device.mac) || state.refreshing}
+                      >
+                        {pendingDeviceMacs.has(device.mac)
+                          ? "Working…"
+                          : device.locked
+                            ? "Unlock"
+                            : "Lock"}
+                      </Button>
+                    </div>
+                  </div>
+                </article>
+              ))}
+              {owner.devices.length === 0 ? (
+                <p className="rounded-xl border border-dashed border-slate-700/40 bg-slate-900/30 p-6 text-sm text-slate-400">
+                  No devices match the current filters.
+                </p>
+              ) : null}
+            </div>
+          </section>
+        );
+      })}
 
       {filtered.unregistered.length > 0 ? (
         <section className="rounded-3xl border border-slate-700/40 bg-slate-900/40 p-6 shadow-card">
@@ -923,6 +984,15 @@ export function FullConsole() {
                         {device.locked ? ICONS.locked : ICONS.unlocked}
                         {device.locked ? "Locked" : "Unlocked"}
                       </span>
+                      <a
+                        href={`/devices?mac=${encodeURIComponent(device.mac)}`}
+                        className={cn(
+                          buttonVariants({ variant: "ghost", size: "sm" }),
+                          "px-2 text-xs text-slate-300 hover:text-white",
+                        )}
+                      >
+                        Details
+                      </a>
                       <Button
                         size="sm"
                         variant={device.locked ? "secondary" : "destructive"}

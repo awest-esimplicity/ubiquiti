@@ -92,6 +92,7 @@ export function mapDeviceDetail(detail: DeviceDetailResponse): DeviceDetail {
     online: detail.online,
     networkName: detail.network_name ?? undefined,
     traffic: mapTrafficSummary(detail.traffic),
+    destinations: detail.destinations ?? [],
   };
 }
 

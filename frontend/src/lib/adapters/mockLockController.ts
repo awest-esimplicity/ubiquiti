@@ -198,6 +198,10 @@ export class MockLockControllerAdapter implements LockControllerPort {
         totalTxBytes,
         samples,
       },
+      destinations:
+        seed % 2 === 0
+          ? [`Switch-${owner.displayName}`, "WAN Gateway"]
+          : [`AP-${owner.displayName}`, "WAN Gateway"],
     };
 
     return Promise.resolve(detail);

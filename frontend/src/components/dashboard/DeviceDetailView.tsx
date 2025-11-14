@@ -240,6 +240,20 @@ export function DeviceDetailView({ mac }: DeviceDetailViewProps) {
                 <dt className="text-xs uppercase tracking-[0.3em] text-slate-500">Vendor</dt>
                 <dd className="text-sm text-slate-200">{detail.vendor ?? "Unknown vendor"}</dd>
               </div>
+              <div className="space-y-2 rounded-2xl border border-slate-800/50 bg-slate-950/40 p-4">
+                <dt className="text-xs uppercase tracking-[0.3em] text-slate-500">Traffic destinations</dt>
+                <dd className="text-sm text-slate-200">
+                  {detail.destinations.length > 0 ? (
+                    <ul className="space-y-1 text-sm text-slate-200">
+                      {detail.destinations.map((destination) => (
+                        <li key={destination}>{destination}</li>
+                      ))}
+                    </ul>
+                  ) : (
+                    <span className="text-slate-500">No destination metadata available.</span>
+                  )}
+                </dd>
+              </div>
             </dl>
           </section>
 

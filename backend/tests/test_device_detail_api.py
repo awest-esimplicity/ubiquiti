@@ -100,6 +100,7 @@ def test_device_detail_returns_enriched_payload(monkeypatch):
     assert data["connection"] == "wireless"
     assert data["online"] is True
     assert data["network_name"] == "gamebox"
+    assert "00:11:22:33:44:55" in data["destinations"]
     traffic = data["traffic"]
     assert traffic["interval_minutes"] == 60
     assert traffic["total_rx_bytes"] == 1536

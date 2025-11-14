@@ -52,6 +52,7 @@ class DeviceDetail(BaseModel):
     online: bool = False
     network_name: str | None = None
     traffic: DeviceTrafficSummary | None = None
+    destinations: list[str] = Field(default_factory=list)
 
 
 class DeviceRegistrationRequest(BaseModel):
