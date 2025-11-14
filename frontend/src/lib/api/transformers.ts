@@ -4,6 +4,7 @@ import type {
   ApiScheduleMetadata,
   ApiScheduleTarget,
   DashboardSummary,
+  DeviceDPIEntryResponse,
   DeviceDetailResponse,
   DeviceStatus,
   DeviceTrafficSampleResponse,
@@ -13,6 +14,7 @@ import type {
 import type {
   DashboardMetadata,
   Device,
+  DeviceDPIEntry,
   DeviceDetail,
   OwnerSummary,
   UnregisteredDevice,
@@ -77,6 +79,14 @@ function mapTrafficSummary(summary: DeviceTrafficSummaryResponse | null | undefi
 }
 
 export function mapDeviceDetail(detail: DeviceDetailResponse): DeviceDetail {
+  const dpiApplications: DeviceDPIEntry[] =
+    detail.dpi_applications?.map((entry: DeviceDPIEntryResponse) => ({
+      application: entry.application,
+      category: entry.category ?? undefined,
+      rxBytes: entry.rx_bytes,
+      txBytes: entry.tx_bytes,
+    })) ?? [];
+
   return {
     name: detail.name,
     type: normaliseDeviceType(detail.type),
@@ -93,6 +103,7 @@ export function mapDeviceDetail(detail: DeviceDetailResponse): DeviceDetail {
     networkName: detail.network_name ?? undefined,
     traffic: mapTrafficSummary(detail.traffic),
     destinations: detail.destinations ?? [],
+    dpiApplications,
   };
 }
 

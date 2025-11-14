@@ -26,6 +26,13 @@ export interface DeviceTrafficSummary {
   samples: DeviceTrafficSample[];
 }
 
+export interface DeviceDPIEntry {
+  application: string;
+  category?: string;
+  rxBytes: number;
+  txBytes: number;
+}
+
 export interface DeviceDetail extends Device {
   owner: string;
   ip?: string;
@@ -37,6 +44,7 @@ export interface DeviceDetail extends Device {
   networkName?: string;
   traffic?: DeviceTrafficSummary | null;
   destinations: string[];
+  dpiApplications: DeviceDPIEntry[];
 }
 
 export interface DeviceRegistrationPayload {

@@ -53,6 +53,14 @@ class DeviceDetail(BaseModel):
     network_name: str | None = None
     traffic: DeviceTrafficSummary | None = None
     destinations: list[str] = Field(default_factory=list)
+    dpi_applications: list["DeviceDPIEntry"] = Field(default_factory=list)
+
+
+class DeviceDPIEntry(BaseModel):
+    application: str
+    category: str | None = None
+    rx_bytes: int = Field(..., ge=0)
+    tx_bytes: int = Field(..., ge=0)
 
 
 class DeviceRegistrationRequest(BaseModel):

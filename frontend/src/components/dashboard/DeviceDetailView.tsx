@@ -304,6 +304,45 @@ export function DeviceDetailView({ mac }: DeviceDetailViewProps) {
               </p>
             )}
           </section>
+
+          <section className="rounded-3xl border border-slate-800/50 bg-slate-950/30 p-6 shadow-inner">
+            <h2 className="text-lg font-semibold text-slate-100">Application activity</h2>
+            {detail.dpiApplications.length > 0 ? (
+              <div className="mt-4 overflow-hidden rounded-2xl border border-slate-800/40">
+                <table className="min-w-full divide-y divide-slate-800/60 text-sm text-slate-200">
+                  <thead className="bg-slate-900/60 text-xs uppercase tracking-[0.3em] text-slate-500">
+                    <tr>
+                      <th className="px-4 py-3 text-left">Application</th>
+                      <th className="px-4 py-3 text-left">Category</th>
+                      <th className="px-4 py-3 text-right">Download</th>
+                      <th className="px-4 py-3 text-right">Upload</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-800/60 bg-slate-950/30">
+                    {detail.dpiApplications.map((entry) => (
+                      <tr key={`${entry.application}-${entry.category ?? "uncategorized"}`}>
+                        <td className="px-4 py-3 font-medium text-slate-50">{entry.application}</td>
+                        <td className="px-4 py-3 text-slate-300">
+                          {entry.category ?? "Uncategorized"}
+                        </td>
+                        <td className="px-4 py-3 text-right text-slate-200">
+                          {formatBytes(entry.rxBytes)}
+                        </td>
+                        <td className="px-4 py-3 text-right text-slate-200">
+                          {formatBytes(entry.txBytes)}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            ) : (
+              <p className="mt-4 text-sm text-slate-400">
+                No DPI application data was available. Ensure UniFi DPI is enabled and retains
+                statistical history for this device.
+              </p>
+            )}
+          </section>
         </div>
       ) : null}
     </div>

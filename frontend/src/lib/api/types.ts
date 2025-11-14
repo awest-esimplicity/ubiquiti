@@ -75,6 +75,14 @@ export interface DeviceDetailResponse {
   network_name?: string | null;
   traffic?: DeviceTrafficSummaryResponse | null;
   destinations?: string[] | null;
+  dpi_applications?: DeviceDPIEntryResponse[] | null;
+}
+
+export interface DeviceDPIEntryResponse {
+  application: string;
+  category?: string | null;
+  rx_bytes: number;
+  tx_bytes: number;
 }
 
 export interface DeviceRegistrationRequest {

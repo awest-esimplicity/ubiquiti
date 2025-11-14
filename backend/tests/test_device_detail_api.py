@@ -23,6 +23,7 @@ class DummyNetworkService:
         self.active_clients: list[dict[str, object]] = []
         self.traffic_samples: list[dict[str, object]] = []
         self.observed_traffic_args: tuple[str, str] | None = None
+        self.dpi_rows: list[dict[str, object]] = []
 
     def get_client_detail(self, mac: str) -> dict[str, object] | None:
         self.observed_detail_mac = mac  # type: ignore[attr-defined]
@@ -42,6 +43,9 @@ class DummyNetworkService:
     ) -> list[dict[str, object]]:
         self.observed_traffic_args = (mac, resolution)  # type: ignore[assignment]
         return list(self.traffic_samples)
+
+    def get_dpi_applications(self) -> list[dict[str, object]]:
+        return list(self.dpi_rows)
 
 
 @contextmanager
@@ -81,6 +85,22 @@ def test_device_detail_returns_enriched_payload(monkeypatch):
         {"time": 1_700_000_000_000, "rx_bytes": 1024, "tx_bytes": 2048},
         {"time": 1_700_000_300_000, "rx_bytes": 512, "tx_bytes": 1024},
     ]
+    service.dpi_rows = [
+        {
+            "client_mac": "aa:bb:cc:dd:ee:ff",
+            "app": "YouTube",
+            "cat": "Streaming Media",
+            "rx_bytes": 5_000_000,
+            "tx_bytes": 1_000_000,
+        },
+        {
+            "client_mac": "aa:bb:cc:dd:ee:ff",
+            "app": "Instagram",
+            "cat": "Social Networks",
+            "rx_bytes": 2_000_000,
+            "tx_bytes": 500_000,
+        },
+    ]
 
     monkeypatch.setattr("backend.services.NetworkDeviceService", lambda _client: service)
     monkeypatch.setattr(
@@ -106,6 +126,8 @@ def test_device_detail_returns_enriched_payload(monkeypatch):
     assert traffic["total_rx_bytes"] == 1536
     assert traffic["total_tx_bytes"] == 3072
     assert len(traffic["samples"]) == 2
+    assert len(data["dpi_applications"]) == 2
+    assert data["dpi_applications"][0]["application"] == "YouTube"
 
 
 def test_device_detail_unknown_mac_returns_404(monkeypatch):

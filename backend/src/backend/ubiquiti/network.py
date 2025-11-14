@@ -97,6 +97,27 @@ class NetworkDeviceService:
         ).debug("Fetched UniFi traffic samples for client")
         return samples
 
+    def get_dpi_applications(self) -> list[dict[str, Any]]:
+        """Return site DPI statistics grouped by application."""
+        suppress_insecure_request_warning(self._client.verify_ssl)
+        response = self._client.request(
+            "post", self._path("stat/sitedpi"), json={"type": "by_app"}
+        )
+        payload = response.json()
+        data: list[dict[str, Any]] = []
+        if isinstance(payload, dict):
+            raw_data = payload.get("data")
+            if isinstance(raw_data, list):
+                data = [entry for entry in raw_data if isinstance(entry, dict)]
+            elif isinstance(raw_data, dict):
+                by_app = raw_data.get("by_app")
+                if isinstance(by_app, list):
+                    data = [entry for entry in by_app if isinstance(entry, dict)]
+        logger.bind(site=self._site, application_count=len(data)).debug(
+            "Fetched UniFi DPI statistics"
+        )
+        return data
+
     def _path(self, suffix: str) -> str:
         return f"/api/s/{self._site}/{suffix.lstrip('/')}"
 

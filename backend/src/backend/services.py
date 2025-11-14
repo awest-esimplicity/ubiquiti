@@ -89,6 +89,14 @@ class DeviceDetailRecord(TypedDict):
     network_name: str | None
     traffic: DeviceTrafficSummary | None
     destinations: list[str]
+    dpi_applications: list["DeviceDPIRecord"]
+
+
+class DeviceDPIRecord(TypedDict):
+    application: str
+    category: str | None
+    rx_bytes: int
+    tx_bytes: int
 
 
 @contextmanager
@@ -217,6 +225,52 @@ def _build_traffic_summary(
         "total_tx_bytes": total_tx,
         "samples": samples,
     }
+
+
+def _extract_dpi_entries(
+    entries: Iterable[Mapping[str, Any]],
+    target_mac: str,
+) -> list[DeviceDPIRecord]:
+    normalized_mac = target_mac.lower()
+    results: list[DeviceDPIRecord] = []
+    for entry in entries:
+        entry_mac = None
+        for key in ("client_mac", "mac", "user_mac"):
+            value = entry.get(key)
+            if isinstance(value, str) and value.strip():
+                entry_mac = value.strip().lower()
+                break
+        if entry_mac and entry_mac != normalized_mac:
+            continue
+
+        app_name = None
+        for key in ("app", "app_name", "applabel", "app_label", "application"):
+            value = entry.get(key)
+            if isinstance(value, str) and value.strip():
+                app_name = value.strip()
+                break
+        if not app_name:
+            app_name = "Unknown application"
+
+        category_name = None
+        for key in ("cat", "category", "cat_name"):
+            value = entry.get(key)
+            if isinstance(value, str) and value.strip():
+                category_name = value.strip()
+                break
+        rx_bytes = max(_safe_int(entry.get("rx_bytes")), 0)
+        tx_bytes = max(_safe_int(entry.get("tx_bytes")), 0)
+        results.append(
+            {
+                "application": app_name,
+                "category": category_name,
+                "rx_bytes": rx_bytes,
+                "tx_bytes": tx_bytes,
+            }
+        )
+
+    results.sort(key=lambda item: item["rx_bytes"] + item["tx_bytes"], reverse=True)
+    return results
 
 
 def get_registered_device_records() -> list[DeviceRecord]:
@@ -550,6 +604,15 @@ def get_device_detail_record(
         if traffic_entries:
             traffic_summary = _build_traffic_summary(traffic_entries, lookback)
 
+        dpi_applications: list[DeviceDPIRecord] = []
+        try:
+            dpi_rows = service.get_dpi_applications()
+            dpi_applications = _extract_dpi_entries(dpi_rows, mac_normalized)
+        except UniFiAPIError as exc:
+            logger.warning(
+                "Failed to fetch UniFi DPI statistics for {}: {}", mac_normalized, exc
+            )
+
         destinations: list[str] = []
         destination_candidates: list[str] = []
         for payload in (merged_info, detail_info):
@@ -591,4 +654,5 @@ def get_device_detail_record(
         "network_name": network_name,
         "traffic": traffic_summary,
         "destinations": destinations,
+        "dpi_applications": dpi_applications,
     }
