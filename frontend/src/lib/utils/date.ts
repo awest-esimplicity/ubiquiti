@@ -11,5 +11,5 @@ export function formatTimestamp(iso: string): string {
     hour12: false
   }).format(date);
 
-  return `${day}-${month}-${year}, ${time}`;
+  return `${month}-${day}-${year}, ${time}`;
 }
