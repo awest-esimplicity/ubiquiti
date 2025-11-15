@@ -68,4 +68,67 @@ export class MockScheduleAdapter implements SchedulePort {
     this.config.schedules = this.config.schedules.filter((schedule) => schedule.id !== scheduleId);
     return Promise.resolve();
   }
+
+  cloneSchedule(scheduleId: string, targetOwner: string): Promise<DeviceSchedule> {
+    const source = this.config.schedules.find((schedule) => schedule.id === scheduleId);
+    if (!source) {
+      return Promise.reject(new Error("Schedule not found"));
+    }
+    const now = new Date().toISOString();
+    const clonedSchedule: DeviceSchedule = {
+      ...clone(source),
+      id: `owner-${targetOwner}-${Date.now()}`,
+      scope: "owner",
+      ownerKey: targetOwner,
+      enabled: true,
+      createdAt: now,
+      updatedAt: now
+    };
+    this.config.schedules.push(clonedSchedule);
+    return Promise.resolve(clone(clonedSchedule));
+  }
+
+  copyOwnerSchedules(
+    sourceOwner: string,
+    targetOwner: string,
+    mode: "merge" | "replace"
+  ): Promise<{ created: DeviceSchedule[]; replacedCount: number }> {
+    const sourceSchedules = this.config.schedules.filter(
+      (schedule) => schedule.scope === "owner" && schedule.ownerKey === sourceOwner
+    );
+    if (sourceSchedules.length === 0) {
+      return Promise.resolve({ created: [], replacedCount: 0 });
+    }
+
+    let replacedCount = 0;
+    if (mode === "replace") {
+      const remaining = this.config.schedules.filter((schedule) => {
+        const replaceCandidate = schedule.scope === "owner" && schedule.ownerKey === targetOwner;
+        if (replaceCandidate) {
+          replacedCount += 1;
+          return false;
+        }
+        return true;
+      });
+      this.config.schedules = remaining;
+    }
+
+    const created: DeviceSchedule[] = [];
+    for (const schedule of sourceSchedules) {
+      const now = new Date().toISOString();
+      const copy: DeviceSchedule = {
+        ...clone(schedule),
+        id: `owner-${targetOwner}-${Date.now()}-${Math.random().toString(16).slice(2, 8)}`,
+        scope: "owner",
+        ownerKey: targetOwner,
+        enabled: true,
+        createdAt: now,
+        updatedAt: now
+      };
+      this.config.schedules.push(copy);
+      created.push(clone(copy));
+    }
+
+    return Promise.resolve({ created, replacedCount });
+  }
 }

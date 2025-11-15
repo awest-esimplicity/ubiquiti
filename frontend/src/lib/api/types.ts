@@ -233,3 +233,24 @@ export interface ApiScheduleCreateRequest {
   exceptions?: ApiScheduleException[];
   enabled?: boolean;
 }
+
+export interface ApiScheduleCloneRequest {
+  targetOwner: string;
+}
+
+export interface ApiScheduleCloneResponse {
+  schedule: ApiDeviceSchedule;
+}
+
+export interface ApiOwnerScheduleCopyRequest {
+  targetOwner: string;
+  mode?: "merge" | "replace";
+}
+
+export interface ApiOwnerScheduleCopyResponse {
+  sourceOwner: string;
+  targetOwner: string;
+  mode: "merge" | "replace";
+  created: ApiDeviceSchedule[];
+  replacedCount: number;
+}

@@ -1,6 +1,8 @@
 import { useEffect, useMemo, useState } from "react";
 
 import { Button } from "@/components/ui/button";
+import type { OwnerInfo } from "@/lib/api/types";
+import { adminService } from "@/lib/bootstrap/admin";
 import { scheduleService } from "@/lib/bootstrap/lockController";
 import type {
   DeviceSchedule,
@@ -58,6 +60,13 @@ type ChangeHandler = (
   field: keyof EventFormState
 ) => (event: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) => void;
 
+interface CopyState {
+  mode: "single" | "bulk";
+  schedule?: DeviceSchedule;
+  targetOwner: string;
+  replace: boolean;
+}
+
 export function ScheduleModal({ ownerKey, ownerName, onClose }: ScheduleModalProps) {
   const [state, setState] = useState<ModalState>({
     loading: true,
@@ -69,6 +78,12 @@ export function ScheduleModal({ ownerKey, ownerName, onClose }: ScheduleModalPro
   const [formError, setFormError] = useState<string>();
   const [isFormOpen, setIsFormOpen] = useState(false);
   const [deletingIds, setDeletingIds] = useState<Set<string>>(new Set());
+  const [ownerOptions, setOwnerOptions] = useState<OwnerInfo[]>([]);
+  const [ownersLoading, setOwnersLoading] = useState(false);
+  const [ownerLoadError, setOwnerLoadError] = useState<string>();
+  const [copyState, setCopyState] = useState<CopyState | null>(null);
+  const [copying, setCopying] = useState(false);
+  const [copyError, setCopyError] = useState<string>();
 
   useEffect(() => {
     let cancelled = false;
@@ -107,6 +122,34 @@ export function ScheduleModal({ ownerKey, ownerName, onClose }: ScheduleModalPro
     };
   }, [ownerKey]);
 
+  useEffect(() => {
+    let cancelled = false;
+    setOwnersLoading(true);
+    adminService
+      .listOwners()
+      .then((owners) => {
+        if (!cancelled) {
+          setOwnerOptions(owners);
+          setOwnerLoadError(undefined);
+        }
+      })
+      .catch((error: unknown) => {
+        if (!cancelled) {
+          const message = error instanceof Error ? error.message : "Failed to load owners.";
+          setOwnerLoadError(message);
+        }
+      })
+      .finally(() => {
+        if (!cancelled) {
+          setOwnersLoading(false);
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
   const timezone = state.metadata?.timezone ?? "UTC";
 
   const sortedOwnerSchedules = useMemo(
@@ -135,6 +178,11 @@ export function ScheduleModal({ ownerKey, ownerName, onClose }: ScheduleModalPro
       .slice(0, 12);
   }, [sortedOwnerSchedules, sortedGlobalSchedules]);
 
+  const availableOwners = useMemo(
+    () => ownerOptions.filter((owner) => owner.key !== ownerKey),
+    [ownerOptions, ownerKey]
+  );
+
   const handleChange: ChangeHandler = (field) => (event) => {
     setForm((prev) => ({
       ...prev,
@@ -150,6 +198,89 @@ export function ScheduleModal({ ownerKey, ownerName, onClose }: ScheduleModalPro
         daysOfWeek: exists ? prev.daysOfWeek.filter((value) => value !== day) : [...prev.daysOfWeek, day]
       };
     });
+  };
+
+  const handleCopySchedule = (schedule: DeviceSchedule) => {
+    if (availableOwners.length === 0) {
+      return;
+    }
+    setCopyError(undefined);
+    setCopyState({
+      mode: "single",
+      schedule,
+      targetOwner: availableOwners[0]?.key ?? "",
+      replace: false
+    });
+  };
+
+  const handleOpenBulkCopy = () => {
+    if (availableOwners.length === 0) {
+      return;
+    }
+    setCopyError(undefined);
+    setCopyState({
+      mode: "bulk",
+      targetOwner: availableOwners[0]?.key ?? "",
+      replace: false
+    });
+  };
+
+  const handleCloseCopyDialog = () => {
+    setCopyState(null);
+    setCopyError(undefined);
+  };
+
+  const handleCopyTargetChange = (value: string) => {
+    setCopyError(undefined);
+    setCopyState((prev) => (prev ? { ...prev, targetOwner: value } : prev));
+  };
+
+  const handleCopyReplaceToggle = (value: boolean) => {
+    setCopyError(undefined);
+    setCopyState((prev) => (prev ? { ...prev, replace: value } : prev));
+  };
+
+  const handleConfirmCopy = async () => {
+    if (!copyState) {
+      return;
+    }
+    if (!copyState.targetOwner) {
+      setCopyError("Select a target owner.");
+      return;
+    }
+    setCopying(true);
+    setCopyError(undefined);
+    try {
+      if (copyState.mode === "single" && copyState.schedule) {
+        const cloned = await scheduleService.cloneSchedule(copyState.schedule.id, copyState.targetOwner);
+        if (copyState.targetOwner === ownerKey) {
+          setState((prev) => ({
+            ...prev,
+            ownerSchedules: [...prev.ownerSchedules, cloned]
+          }));
+        }
+      } else if (copyState.mode === "bulk") {
+        const response = await scheduleService.copyOwnerSchedules(
+          ownerKey,
+          copyState.targetOwner,
+          copyState.replace ? "replace" : "merge"
+        );
+        if (copyState.targetOwner === ownerKey) {
+          setState((prev) => ({
+            ...prev,
+            ownerSchedules: copyState.replace
+              ? response.created
+              : [...prev.ownerSchedules, ...response.created]
+          }));
+        }
+      }
+      setCopyState(null);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Failed to copy schedules.";
+      setCopyError(message);
+    } finally {
+      setCopying(false);
+    }
   };
 
   const handleSubmit = (event: React.FormEvent<HTMLFormElement>) => {
@@ -253,13 +384,20 @@ export function ScheduleModal({ ownerKey, ownerName, onClose }: ScheduleModalPro
 
   return (
     <div className="fixed inset-0 z-[1300] flex items-center justify-center bg-slate-950/70 px-4 backdrop-blur-md">
-      <div className="h-[90vh] w-full max-w-4xl overflow-hidden rounded-3xl border border-slate-700/40 bg-slate-900/95 shadow-[0_35px_90px_rgba(10,12,34,0.65)]">
+      <div className="relative h-[90vh] w-full max-w-4xl overflow-hidden rounded-3xl border border-slate-700/40 bg-slate-900/95 shadow-[0_35px_90px_rgba(10,12,34,0.65)]">
         <header className="flex items-center justify-between border-b border-slate-700/40 px-6 py-4">
           <div>
             <h2 className="text-xl font-semibold text-slate-50">Schedule for {ownerName}</h2>
             <p className="text-xs uppercase tracking-[0.3em] text-slate-500">Timezone · {timezone}</p>
           </div>
           <div className="flex gap-2">
+            <Button
+              variant="outline"
+              onClick={handleOpenBulkCopy}
+              disabled={ownersLoading || availableOwners.length === 0 || copying}
+            >
+              Copy owner schedules
+            </Button>
             <Button
               variant={isFormOpen ? "secondary" : "primary"}
               onClick={() => {
@@ -295,6 +433,11 @@ export function ScheduleModal({ ownerKey, ownerName, onClose }: ScheduleModalPro
                     {state.error}
                   </div>
                 ) : null}
+                {ownerLoadError ? (
+                  <div className="rounded-2xl border border-status-locked/40 bg-status-locked/10 p-3 text-xs text-status-locked">
+                    {ownerLoadError}
+                  </div>
+                ) : null}
 
                 {isFormOpen ? (
                   <EventForm
@@ -316,6 +459,9 @@ export function ScheduleModal({ ownerKey, ownerName, onClose }: ScheduleModalPro
                     emptyMessage="No schedules yet for this owner."
                     onDelete={(schedule) => handleDeleteSchedule(schedule, "owner")}
                     deletingIds={deletingIds}
+                    onCopy={availableOwners.length === 0 ? undefined : handleCopySchedule}
+                    showCopyButton
+                    copyDisabled={copying || ownersLoading || availableOwners.length === 0}
                   />
                   <EventList
                     title="Global schedules"
@@ -328,6 +474,128 @@ export function ScheduleModal({ ownerKey, ownerName, onClose }: ScheduleModalPro
               </>
             )}
           </section>
+        </div>
+        {copyState ? (
+          <CopyScheduleDialog
+            owners={availableOwners}
+            ownerName={ownerName}
+            state={copyState}
+            onTargetChange={handleCopyTargetChange}
+            onToggleReplace={handleCopyReplaceToggle}
+            onCancel={handleCloseCopyDialog}
+            onConfirm={() => void handleConfirmCopy()}
+            copying={copying}
+            error={copyError}
+          />
+        ) : null}
+      </div>
+    </div>
+  );
+}
+
+interface CopyScheduleDialogProps {
+  owners: OwnerInfo[];
+  ownerName: string;
+  state: CopyState;
+  onTargetChange: (value: string) => void;
+  onToggleReplace: (value: boolean) => void;
+  onCancel: () => void;
+  onConfirm: () => void;
+  copying: boolean;
+  error?: string;
+}
+
+function CopyScheduleDialog({
+  owners,
+  ownerName,
+  state,
+  onTargetChange,
+  onToggleReplace,
+  onCancel,
+  onConfirm,
+  copying,
+  error
+}: CopyScheduleDialogProps) {
+  const disableConfirm = owners.length === 0 || (!state.targetOwner && owners.length > 0) || copying;
+  const title = state.mode === "single" ? "Copy schedule" : "Copy owner schedules";
+  const subtitle =
+    state.mode === "single"
+      ? `Duplicate “${state.schedule?.label ?? "Schedule"}” to another owner`
+      : `Copy all schedules from ${ownerName} to another owner`;
+
+  return (
+    <div className="absolute inset-0 z-[1400] flex items-center justify-center bg-slate-950/85 px-4">
+      <div className="w-full max-w-lg rounded-3xl border border-slate-700/60 bg-slate-900/95 p-6 shadow-[0_40px_80px_rgba(5,7,17,0.6)]">
+        <div className="flex items-start justify-between gap-4">
+          <div>
+            <h3 className="text-lg font-semibold text-slate-50">{title}</h3>
+            <p className="text-xs uppercase tracking-[0.3em] text-slate-500">{subtitle}</p>
+          </div>
+          <Button variant="ghost" size="icon" onClick={onCancel} disabled={copying}>
+            ✕
+          </Button>
+        </div>
+
+        <div className="mt-4 space-y-4">
+          <label className="block text-xs uppercase tracking-[0.3em] text-slate-500">
+            Target owner
+            <select
+              className="mt-2 w-full rounded-lg border border-slate-700/60 bg-slate-900/70 px-3 py-2 text-sm text-slate-100 focus:border-brand-blue focus:outline-none focus:ring-1 focus:ring-brand-blue"
+              value={state.targetOwner}
+              onChange={(event) => onTargetChange(event.target.value)}
+              disabled={copying || owners.length === 0}
+            >
+              {owners.length === 0 ? (
+                <option value="">No other owners available</option>
+              ) : (
+                owners.map((owner) => (
+                  <option key={owner.key} value={owner.key}>
+                    {owner.displayName}
+                  </option>
+                ))
+              )}
+            </select>
+          </label>
+
+          {state.mode === "single" && state.schedule ? (
+            <div className="rounded-2xl border border-slate-700/50 bg-slate-900/60 p-4 text-sm text-slate-300">
+              <p className="text-slate-100">Schedule</p>
+              <p className="mt-1 font-semibold text-slate-50">{state.schedule.label}</p>
+              {state.schedule.description ? (
+                <p className="mt-1 text-xs text-slate-400">{state.schedule.description}</p>
+              ) : null}
+            </div>
+          ) : null}
+
+          {state.mode === "bulk" ? (
+            <label className="flex items-center gap-2 text-sm text-slate-300">
+              <input
+                type="checkbox"
+                className="rounded border border-slate-600 bg-slate-900 text-brand-blue focus:ring-brand-blue"
+                checked={state.replace}
+                onChange={(event) => onToggleReplace(event.target.checked)}
+                disabled={copying}
+              />
+              Replace existing schedules for the target owner
+            </label>
+          ) : null}
+
+          {error ? <p className="text-sm text-status-locked">{error}</p> : null}
+        </div>
+
+        <div className="mt-6 flex justify-end gap-3">
+          <Button variant="ghost" onClick={onCancel} disabled={copying}>
+            Cancel
+          </Button>
+          <Button onClick={() => void onConfirm()} disabled={disableConfirm}>
+            {copying
+              ? "Copying…"
+              : state.mode === "single"
+                ? "Copy schedule"
+                : state.replace
+                  ? "Copy & replace"
+                  : "Copy schedules"}
+          </Button>
         </div>
       </div>
     </div>
@@ -414,9 +682,21 @@ interface EventListProps {
   emptyMessage: string;
   onDelete: (schedule: DeviceSchedule) => void;
   deletingIds: Set<string>;
+  onCopy?: (schedule: DeviceSchedule) => void;
+  showCopyButton?: boolean;
+  copyDisabled?: boolean;
 }
 
-function EventList({ title, schedules, emptyMessage, onDelete, deletingIds }: EventListProps) {
+function EventList({
+  title,
+  schedules,
+  emptyMessage,
+  onDelete,
+  deletingIds,
+  onCopy,
+  showCopyButton = false,
+  copyDisabled = false
+}: EventListProps) {
   return (
     <div>
       <h3 className="text-sm uppercase tracking-[0.3em] text-slate-500">{title}</h3>
@@ -431,30 +711,43 @@ function EventList({ title, schedules, emptyMessage, onDelete, deletingIds }: Ev
               key={schedule.id}
               className="rounded-2xl border border-slate-700/40 bg-slate-900/50 p-4 shadow-inner transition hover:border-brand-blue/50 hover:bg-slate-900/70"
             >
-              <div className="flex flex-wrap items-center justify-between gap-3">
-                <div>
+              <div className="flex flex-wrap items-start justify-between gap-3">
+                <div className="min-w-0 flex-1">
                   <p className="text-sm font-semibold text-slate-100">{schedule.label}</p>
                   {schedule.description ? (
                     <p className="text-xs text-slate-400">{schedule.description}</p>
                   ) : null}
                 </div>
-                <span className="inline-flex items-center gap-2 text-xs text-slate-400">
+                <div className="flex flex-wrap items-center gap-2 text-xs text-slate-400">
                   <span className="rounded-full border border-slate-700/60 px-3 py-1 text-slate-300">
                     Starts · {formatTimestamp(schedule.window.start)}
                   </span>
                   <span className="rounded-full border border-slate-700/60 px-3 py-1 text-slate-300">
                     Ends · {formatTimestamp(schedule.window.end)}
                   </span>
-                </span>
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  className="text-xs text-status-locked hover:text-status-locked"
-                  disabled={deletingIds.has(schedule.id)}
-                  onClick={() => onDelete(schedule)}
-                >
-                  {deletingIds.has(schedule.id) ? "Removing…" : "Delete"}
-                </Button>
+                </div>
+                <div className="flex items-center gap-2">
+                  {showCopyButton ? (
+                    <Button
+                      variant="secondary"
+                      size="sm"
+                      className="text-xs"
+                      disabled={copyDisabled || !onCopy}
+                      onClick={() => onCopy?.(schedule)}
+                    >
+                      Copy
+                    </Button>
+                  ) : null}
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="text-xs text-status-locked hover:text-status-locked"
+                    disabled={deletingIds.has(schedule.id)}
+                    onClick={() => onDelete(schedule)}
+                  >
+                    {deletingIds.has(schedule.id) ? "Removing…" : "Delete"}
+                  </Button>
+                </div>
               </div>
               <div className="mt-3 grid gap-3 text-xs text-slate-400 md:grid-cols-2">
                 <div>

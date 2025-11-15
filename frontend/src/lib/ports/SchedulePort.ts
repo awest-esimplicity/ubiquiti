@@ -10,4 +10,10 @@ export interface SchedulePort {
   loadOwnerSchedules(ownerKey: string): Promise<OwnerScheduleSnapshot>;
   createSchedule(input: CreateScheduleInput): Promise<DeviceSchedule>;
   deleteSchedule(scheduleId: string): Promise<void>;
+  cloneSchedule(scheduleId: string, targetOwner: string): Promise<DeviceSchedule>;
+  copyOwnerSchedules(
+    sourceOwner: string,
+    targetOwner: string,
+    mode: "merge" | "replace"
+  ): Promise<{ created: DeviceSchedule[]; replacedCount: number }>;
 }

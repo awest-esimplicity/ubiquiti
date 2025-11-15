@@ -61,4 +61,16 @@ export class ScheduleService {
   async deleteSchedule(scheduleId: string): Promise<void> {
     await this.port.deleteSchedule(scheduleId);
   }
+
+  async cloneSchedule(scheduleId: string, targetOwner: string): Promise<DeviceSchedule> {
+    return this.port.cloneSchedule(scheduleId, targetOwner);
+  }
+
+  async copyOwnerSchedules(
+    sourceOwner: string,
+    targetOwner: string,
+    mode: "merge" | "replace"
+  ): Promise<{ created: DeviceSchedule[]; replacedCount: number }> {
+    return this.port.copyOwnerSchedules(sourceOwner, targetOwner, mode);
+  }
 }

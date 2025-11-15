@@ -61,4 +61,24 @@ export class ApiScheduleAdapter implements SchedulePort {
   async deleteSchedule(scheduleId: string): Promise<void> {
     await this.client.deleteSchedule(scheduleId);
   }
+
+  async cloneSchedule(scheduleId: string, targetOwner: string): Promise<DeviceSchedule> {
+    const schedule = await this.client.cloneSchedule(scheduleId, { targetOwner });
+    return mapSchedule(schedule);
+  }
+
+  async copyOwnerSchedules(
+    sourceOwner: string,
+    targetOwner: string,
+    mode: "merge" | "replace"
+  ): Promise<{ created: DeviceSchedule[]; replacedCount: number }> {
+    const response = await this.client.copyOwnerSchedules(sourceOwner, {
+      targetOwner,
+      mode
+    });
+    return {
+      created: response.created.map(mapSchedule),
+      replacedCount: response.replacedCount
+    };
+  }
 }

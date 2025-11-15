@@ -309,6 +309,27 @@ class OwnerScheduleResponse(CamelModel):
     global_schedules: list[DeviceSchedule] = Field(alias="globalSchedules")
 
 
+class ScheduleCloneRequest(CamelModel):
+    target_owner: str = Field(alias="targetOwner", min_length=1)
+
+
+class ScheduleCloneResponse(CamelModel):
+    schedule: DeviceSchedule
+
+
+class OwnerScheduleCopyRequest(CamelModel):
+    target_owner: str = Field(alias="targetOwner", min_length=1)
+    mode: Literal["merge", "replace"] = "merge"
+
+
+class OwnerScheduleCopyResponse(CamelModel):
+    source_owner: str = Field(alias="sourceOwner")
+    target_owner: str = Field(alias="targetOwner")
+    mode: Literal["merge", "replace"]
+    created: list[DeviceSchedule] = Field(default_factory=list)
+    replaced_count: int = Field(default=0, alias="replacedCount")
+
+
 __all__ = [
     "DeviceStatus",
     "DeviceListResponse",

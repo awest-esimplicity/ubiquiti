@@ -77,6 +77,56 @@ def test_get_owner_schedule_summary():
     assert "globalSchedules" in data
 
 
+def test_clone_schedule_to_owner():
+    source_response = client.get("/api/owners/kade/schedules")
+    assert source_response.status_code == 200
+    source_data = source_response.json()
+    source_schedule = source_data["ownerSchedules"][0]
+
+    target_before = client.get("/api/owners/jayce/schedules").json()
+    before_count = len(target_before["ownerSchedules"])
+
+    clone_response = client.post(
+        f"/api/schedules/{source_schedule['id']}/clone",
+        json={"targetOwner": "jayce"},
+    )
+    assert clone_response.status_code == 201
+    clone_data = clone_response.json()["schedule"]
+    assert clone_data["id"] != source_schedule["id"]
+    assert clone_data["ownerKey"] == "jayce"
+
+    target_after = client.get("/api/owners/jayce/schedules").json()
+    after_ids = {item["id"] for item in target_after["ownerSchedules"]}
+    assert clone_data["id"] in after_ids
+    assert len(target_after["ownerSchedules"]) == before_count + 1
+
+
+def test_copy_owner_schedules_replace():
+    source_owner = "kade"
+    target_owner = "kailah"
+
+    source_data = client.get(f"/api/owners/{source_owner}/schedules").json()
+    source_count = len(source_data["ownerSchedules"])
+
+    target_data_before = client.get(f"/api/owners/{target_owner}/schedules").json()
+    target_before_count = len(target_data_before["ownerSchedules"])
+
+    copy_response = client.post(
+        f"/api/owners/{source_owner}/schedules/copy",
+        json={"targetOwner": target_owner, "mode": "replace"},
+    )
+    assert copy_response.status_code == 200
+    payload = copy_response.json()
+    assert payload["sourceOwner"] == source_owner
+    assert payload["targetOwner"] == target_owner
+    assert payload["mode"] == "replace"
+    assert payload["replacedCount"] == target_before_count
+    assert len(payload["created"]) == source_count
+
+    target_data_after = client.get(f"/api/owners/{target_owner}/schedules").json()
+    assert len(target_data_after["ownerSchedules"]) == source_count
+
+
 def test_create_schedule_requires_owner_key():
     payload = _build_schedule_payload("jayce")
     payload.pop("ownerKey")

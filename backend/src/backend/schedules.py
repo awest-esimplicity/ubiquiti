@@ -7,7 +7,7 @@ import uuid
 from copy import deepcopy
 from datetime import datetime, timezone
 from functools import lru_cache
-from typing import Iterable, Protocol
+from typing import Iterable, Literal, Protocol
 
 from sqlalchemy import select
 from sqlalchemy.exc import NoResultFound
@@ -86,6 +86,18 @@ def _model_to_schedule(model: ScheduleModel) -> DeviceSchedule:
         created_at=datetime.fromisoformat(model.created_at),
         updated_at=datetime.fromisoformat(model.updated_at),
     )
+
+
+def _clone_for_owner(schedule: DeviceSchedule, owner_key: str) -> DeviceSchedule:
+    cloned = DeviceSchedule.model_validate(schedule.model_dump(by_alias=True))
+    cloned.id = str(uuid.uuid4())
+    cloned.scope = "owner"
+    cloned.owner_key = owner_key.lower()
+    cloned.enabled = True
+    timestamp = _now()
+    cloned.created_at = timestamp
+    cloned.updated_at = timestamp
+    return cloned
 
 
 def _metadata_to_model(metadata: ScheduleMetadata) -> ScheduleMetadataModel:
@@ -172,6 +184,18 @@ class ScheduleRepository(Protocol):
         ...
 
     def sync_from_config(self, config: ScheduleConfig, *, replace: bool) -> None:
+        ...
+
+    def clone(self, schedule_id: str, target_owner: str) -> DeviceSchedule | None:
+        ...
+
+    def copy_owner_schedules(
+        self,
+        source_owner: str,
+        target_owner: str,
+        *,
+        mode: Literal["merge", "replace"],
+    ) -> tuple[list[DeviceSchedule], int]:
         ...
 
 
@@ -295,6 +319,54 @@ class InMemoryScheduleRepository(ScheduleRepository):
         self._config.metadata = ScheduleMetadata.model_validate(
             config.metadata.model_dump(by_alias=True)
         )
+
+    def clone(self, schedule_id: str, target_owner: str) -> DeviceSchedule | None:
+        target_owner = target_owner.lower()
+        for schedule in self._config.schedules:
+            if schedule.id == schedule_id:
+                new_schedule = _clone_for_owner(schedule, target_owner)
+                self._config.schedules.append(new_schedule)
+                self._config.metadata.generated_at = _now()
+                return self._clone_schedule(new_schedule)
+        return None
+
+    def copy_owner_schedules(
+        self,
+        source_owner: str,
+        target_owner: str,
+        *,
+        mode: Literal["merge", "replace"],
+    ) -> tuple[list[DeviceSchedule], int]:
+        source_owner = source_owner.lower()
+        target_owner = target_owner.lower()
+        source_schedules = [
+            schedule
+            for schedule in self._config.schedules
+            if schedule.scope == "owner" and schedule.owner_key == source_owner
+        ]
+        if not source_schedules:
+            return [], 0
+
+        replaced_count = 0
+        if mode == "replace":
+            remaining: list[DeviceSchedule] = []
+            for schedule in self._config.schedules:
+                if schedule.scope == "owner" and schedule.owner_key == target_owner:
+                    replaced_count += 1
+                    continue
+                remaining.append(schedule)
+            self._config.schedules = remaining
+
+        created: list[DeviceSchedule] = []
+        for schedule in source_schedules:
+            clone = _clone_for_owner(schedule, target_owner)
+            self._config.schedules.append(clone)
+            created.append(self._clone_schedule(clone))
+
+        if created or replaced_count:
+            self._config.metadata.generated_at = _now()
+
+        return created, replaced_count
 
 
 # SQLAlchemy repository -------------------------------------------------------
@@ -450,6 +522,69 @@ class SqlScheduleRepository(ScheduleRepository):
                 session.merge(_schedule_to_model(schedule))
             session.merge(_metadata_to_model(config.metadata))
             session.commit()
+
+    def clone(self, schedule_id: str, target_owner: str) -> DeviceSchedule | None:
+        target_owner = target_owner.lower()
+        with self._session() as session:
+            source = session.get(ScheduleModel, schedule_id)
+            if source is None:
+                return None
+            schedule = _model_to_schedule(source)
+            clone = _clone_for_owner(schedule, target_owner)
+            session.merge(_schedule_to_model(clone))
+            self._set_generated_at(session)
+            session.commit()
+            return clone
+
+    def copy_owner_schedules(
+        self,
+        source_owner: str,
+        target_owner: str,
+        *,
+        mode: Literal["merge", "replace"],
+    ) -> tuple[list[DeviceSchedule], int]:
+        source_owner = source_owner.lower()
+        target_owner = target_owner.lower()
+        with self._session() as session:
+            source_rows = (
+                session.execute(
+                    select(ScheduleModel).where(
+                        ScheduleModel.scope == "owner",
+                        ScheduleModel.owner_key == source_owner,
+                    )
+                )
+                .scalars()
+                .all()
+            )
+            if not source_rows:
+                return [], 0
+
+            replaced_count = 0
+            if mode == "replace":
+                target_rows = (
+                    session.execute(
+                        select(ScheduleModel).where(
+                            ScheduleModel.scope == "owner",
+                            ScheduleModel.owner_key == target_owner,
+                        )
+                    )
+                    .scalars()
+                    .all()
+                )
+                replaced_count = len(target_rows)
+                for row in target_rows:
+                    session.delete(row)
+
+            created: list[DeviceSchedule] = []
+            for row in source_rows:
+                schedule = _model_to_schedule(row)
+                clone = _clone_for_owner(schedule, target_owner)
+                session.merge(_schedule_to_model(clone))
+                created.append(clone)
+
+            self._set_generated_at(session)
+            session.commit()
+            return created, replaced_count
 
 
 # Repository factory ----------------------------------------------------------

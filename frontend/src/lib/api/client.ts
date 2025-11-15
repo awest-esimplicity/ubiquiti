@@ -1,6 +1,8 @@
 import type {
   ApiDeviceSchedule,
   ApiOwnerScheduleResponse,
+  ApiScheduleCloneRequest,
+  ApiScheduleCloneResponse,
   ApiScheduleCreateRequest,
   ApiScheduleListResponse,
   DashboardSummary,
@@ -13,6 +15,8 @@ import type {
   DeviceTarget,
   DeviceTypeCreateRequest,
   DeviceTypesResponse,
+  ApiOwnerScheduleCopyRequest,
+  ApiOwnerScheduleCopyResponse,
   OwnerInfo,
   WhoAmIResponse,
   OwnerCreateRequest,
@@ -217,5 +221,32 @@ export class UnifiApiClient {
     await this.request(`/api/schedules/${scheduleId}`, {
       method: "DELETE",
     });
+  }
+
+  async cloneSchedule(
+    scheduleId: string,
+    payload: ApiScheduleCloneRequest,
+  ): Promise<ApiDeviceSchedule> {
+    const response = await this.request<ApiScheduleCloneResponse, ApiScheduleCloneRequest>(
+      `/api/schedules/${scheduleId}/clone`,
+      {
+        method: "POST",
+        body: payload,
+      },
+    );
+    return response.schedule;
+  }
+
+  async copyOwnerSchedules(
+    sourceOwner: string,
+    payload: ApiOwnerScheduleCopyRequest,
+  ): Promise<ApiOwnerScheduleCopyResponse> {
+    return this.request<ApiOwnerScheduleCopyResponse, ApiOwnerScheduleCopyRequest>(
+      `/api/owners/${sourceOwner}/schedules/copy`,
+      {
+        method: "POST",
+        body: payload,
+      },
+    );
   }
 }

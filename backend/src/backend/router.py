@@ -688,6 +688,90 @@ def enable_schedule(schedule_id: str, request: Request) -> schemas.DeviceSchedul
     return schedule
 
 
+@router.post(
+    "/schedules/{schedule_id}/clone",
+    response_model=schemas.ScheduleCloneResponse,
+    status_code=status.HTTP_201_CREATED,
+    tags=["schedules"],
+)
+def clone_schedule_entry(
+    schedule_id: str,
+    payload: schemas.ScheduleCloneRequest,
+    request: Request,
+) -> schemas.ScheduleCloneResponse:
+    target_owner = payload.target_owner.strip().lower()
+    _require_owner(target_owner)
+    schedule_repo = get_schedule_repository()
+    cloned = schedule_repo.clone(schedule_id, target_owner)
+    if cloned is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Schedule not found.")
+    actor = _resolve_actor(request)
+    reason = _resolve_reason(request)
+    record_event(
+        action="schedule_cloned",
+        subject_type="schedule",
+        subject_id=cloned.id,
+        actor=actor,
+        reason=reason,
+        metadata={
+            "source_schedule": schedule_id,
+            "target_owner": target_owner,
+            "label": cloned.label,
+        },
+    )
+    return schemas.ScheduleCloneResponse(schedule=cloned)
+
+
+@router.post(
+    "/owners/{source_owner}/schedules/copy",
+    response_model=schemas.OwnerScheduleCopyResponse,
+    tags=["schedules"],
+)
+def copy_owner_schedules_endpoint(
+    source_owner: str,
+    payload: schemas.OwnerScheduleCopyRequest,
+    request: Request,
+) -> schemas.OwnerScheduleCopyResponse:
+    source_key = source_owner.strip().lower()
+    target_owner = payload.target_owner.strip().lower()
+    if source_key == target_owner:
+        raise HTTPException(
+            status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Target owner must be different from source owner.",
+        )
+    _require_owner(source_key)
+    _require_owner(target_owner)
+    schedule_repo = get_schedule_repository()
+    created, replaced = schedule_repo.copy_owner_schedules(
+        source_key,
+        target_owner,
+        mode=payload.mode,
+    )
+    actor = _resolve_actor(request)
+    reason = _resolve_reason(request)
+    record_event(
+        action="owner_schedules_copied",
+        subject_type="owner",
+        subject_id=target_owner,
+        actor=actor,
+        reason=reason,
+        metadata={
+            "source_owner": source_key,
+            "target_owner": target_owner,
+            "mode": payload.mode,
+            "created_count": len(created),
+            "replaced_count": replaced,
+        },
+    )
+    return schemas.OwnerScheduleCopyResponse(
+        source_owner=source_key,
+        target_owner=target_owner,
+        mode=payload.mode,
+        created=created,
+        replaced_count=replaced,
+    )
+
+
 @router.get(
     "/session/whoami",
     response_model=schemas.WhoAmIResponse,
