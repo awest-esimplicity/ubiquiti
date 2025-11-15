@@ -18,21 +18,25 @@ export function OwnerCard({ owner, onSelect, className }: OwnerCardProps) {
       type="button"
       onClick={() => onSelect(owner)}
       className={cn(
-        "group relative w-full rounded-2xl border border-border/60 bg-gradient-to-br from-[#141f35] via-[#0d1427] to-[#0a1223] p-6 text-left shadow-card transition-all duration-200 hover:-translate-y-1 hover:border-brand-blue/50 hover:shadow-[0_24px_45px_rgba(37,99,235,0.35)]",
-        className
+        "group relative flex h-full w-full flex-col rounded-2xl border border-border/60 bg-gradient-to-br from-[#141f35] via-[#0d1427] to-[#0a1223] p-6 text-left shadow-card transition-all duration-200 hover:-translate-y-1 hover:border-brand-blue/50 hover:shadow-[0_24px_45px_rgba(37,99,235,0.35)]",
+        className,
       )}
     >
-      <header className="flex items-center justify-between">
+      <header className="flex items-center justify-between gap-3">
         <div>
-          <h3 className="text-lg font-semibold tracking-tight text-slate-50">{owner.displayName}</h3>
-          <p className="text-xs uppercase tracking-[0.2em] text-slate-400 mt-1">Owner overview</p>
+          <h3 className="text-lg font-semibold tracking-tight text-slate-50">
+            {owner.displayName}
+          </h3>
+          <p className="mt-1 text-xs uppercase tracking-[0.2em] text-slate-400">
+            Owner overview
+          </p>
         </div>
-        <span className="inline-flex h-9 w-9 items-center justify-center rounded-xl border border-brand-blue/40 bg-brand-blue/20 text-brand-blue">
+        <span className="inline-flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-xl border border-brand-blue/40 bg-brand-blue/20 text-brand-blue">
           {ICONS.users}
         </span>
       </header>
 
-      <div className="mt-6 space-y-5">
+      <div className="mt-6 flex flex-1 flex-col justify-between gap-5">
         <div className="flex items-center gap-3">
           <span className="inline-flex h-10 w-10 items-center justify-center rounded-xl bg-brand-blue/20 text-brand-blue">
             {ICONS.devices}

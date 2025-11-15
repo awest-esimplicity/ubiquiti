@@ -97,4 +97,20 @@ export const ICONS: Record<string, ReactNode> = {
       <path d="M21 18a2 2 0 0 1-1.73 3H4.73A2 2 0 0 1 3 18l8.27-14a2 2 0 0 1 3.46 0z" />
     </svg>
   ),
+  info: (
+    <svg
+      xmlns="http://www.w3.org/2000/svg"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={1.8}
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className="size-4"
+    >
+      <circle cx="12" cy="12" r="10" />
+      <line x1="12" y1="16" x2="12" y2="12" />
+      <line x1="12" y1="8" x2="12.01" y2="8" />
+    </svg>
+  ),
 };

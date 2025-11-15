@@ -251,7 +251,7 @@ export function HomeDashboard() {
             {ICONS.refresh}
           </Button>
         </div>
-        <div className="grid gap-6 sm:grid-cols-2 xl:grid-cols-4">
+        <div className="grid gap-6 sm:grid-cols-2 xl:grid-cols-4 auto-rows-fr">
           {owners.map((owner) => (
             <OwnerCard key={owner.key} owner={owner} onSelect={handleSelectOwner} />
           ))}

@@ -728,15 +728,15 @@ export function FullConsole() {
               </div>
             </details>
 
-            <div className="grid gap-6 md:grid-cols-2 xl:grid-cols-4">
+            <div className="grid auto-rows-fr gap-6 md:grid-cols-2 xl:grid-cols-4">
               {owner.devices.map((device) => (
                 <article
                   key={device.mac}
-                  className="relative overflow-hidden rounded-2xl border border-slate-700/40 bg-slate-900/50 p-5 transition hover:border-brand-blue/50 hover:bg-slate-900/70"
+                  className="relative flex h-full flex-col overflow-hidden rounded-2xl border border-slate-700/40 bg-slate-900/50 p-5 transition hover:border-brand-blue/50 hover:bg-slate-900/70"
                 >
-                  <div>
-                    <h3 className="text-lg font-medium text-slate-50">{device.name}</h3>
-                    <p className="text-xs text-slate-500">{device.mac}</p>
+                  <div className="flex-1 pr-10">
+                    <h3 className="text-lg font-medium leading-tight text-slate-50">{device.name}</h3>
+                    <p className="mt-1 text-xs text-slate-500 break-all">{device.mac}</p>
                     <span
                       className={cn(
                         "mt-3 inline-flex items-center gap-1 rounded-full border px-3 py-1 text-xs font-medium",
@@ -750,20 +750,23 @@ export function FullConsole() {
                     </span>
                     <a
                       href={`/devices?mac=${encodeURIComponent(device.mac)}`}
-                      className="absolute right-4 top-4 inline-flex h-7 w-7 items-center justify-center rounded-full border border-slate-700/50 bg-slate-900/60 text-xs text-slate-300 transition hover:border-brand-blue/50 hover:text-white"
-                      title="View activity details"
+                      className="absolute right-4 top-4 inline-flex h-7 w-7 items-center justify-center rounded-full border border-slate-700/50 bg-slate-900/60 text-slate-300 transition hover:border-brand-blue/50 hover:text-white"
+                      title={`View activity details for ${device.name}`}
+                      aria-label={`View activity details for ${device.name}`}
                     >
-                      i
+                      <span aria-hidden>{ICONS.info}</span>
                     </a>
                   </div>
 
-                  <div className="mt-4 flex flex-wrap items-center justify-between gap-3 text-xs text-slate-400">
-                    <div className="flex flex-wrap items-center gap-2 text-slate-300">
+                  <div className="mt-4 flex flex-nowrap items-center justify-between gap-3 text-xs text-slate-400">
+                    <div className="flex min-w-0 items-center gap-2 text-slate-300">
                       <span className="text-sm capitalize text-slate-200">{device.type}</span>
-                      <span>•</span>
-                      <span>{device.vendor ?? "Unknown vendor"}</span>
+                      <span className="text-slate-500">•</span>
+                      <span className="truncate text-xs text-slate-500">
+                        {device.vendor ?? "Unknown vendor"}
+                      </span>
                     </div>
-                    <div className="flex items-center gap-2">
+                    <div className="flex flex-shrink-0 items-center gap-2">
                       <Button
                         size="sm"
                         variant={device.locked ? "secondary" : "destructive"}
@@ -781,7 +784,7 @@ export function FullConsole() {
                 </article>
               ))}
               {owner.devices.length === 0 ? (
-                <p className="rounded-xl border border-dashed border-slate-700/40 bg-slate-900/30 p-6 text-sm text-slate-400">
+                <p className="rounded-xl border border-dashed border-slate-700/40 bg-slate-900/30 p-6 text-sm text-slate-400 md:col-span-2 xl:col-span-4">
                   No devices match the current filters.
                 </p>
               ) : null}
