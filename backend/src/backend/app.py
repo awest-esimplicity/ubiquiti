@@ -9,6 +9,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
 from .router import router as api_router
+from .schedule_executor import executor as schedule_executor
 from .ubiquiti.utils import configure_logging, logger
 
 configure_logging()
@@ -65,3 +66,13 @@ def _mount_frontend_assets() -> None:
 
 
 _mount_frontend_assets()
+
+
+@app.on_event("startup")
+async def _start_executor() -> None:
+    await schedule_executor.start()
+
+
+@app.on_event("shutdown")
+async def _stop_executor() -> None:
+    await schedule_executor.stop()
