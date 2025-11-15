@@ -8,9 +8,9 @@ services:
     container_name: ubiquiti-backend
     restart: unless-stopped
     environment:
-      UBIQUITI_DB_URL: ${UBIQUITI_DB_URL:-}
+      UBIQUITI_DB_URL: ${UBIQUITI_DB_URL:-sqlite:////app/data/ubiquiti.db}
       UBIQUITI_DB_ECHO: "false"
-      UBIQUITI_DB_MODE: ${UBIQUITI_DB_MODE:-memory}
+      UBIQUITI_DB_MODE: ${UBIQUITI_DB_MODE:-database}
       UBIQUITI_LOG_LEVEL: INFO
       UNIFI_API_KEY: ${UNIFI_API_KEY:-}
     ports:
