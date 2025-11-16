@@ -10,10 +10,8 @@ from datetime import datetime, timezone
 from functools import lru_cache
 from typing import Iterable, Literal, Protocol
 
-from sqlalchemy import delete, select, text
+from sqlalchemy import delete, select
 from sqlalchemy.orm import Session
-
-from sqlalchemy.exc import OperationalError
 
 from .database import get_engine, get_session_factory, is_database_configured
 from .db_models import (
@@ -34,8 +32,6 @@ from .schemas import (
     ScheduleUpdateRequest,
     ScheduleWindow,
 )
-from .ubiquiti.utils import logger
-
 
 # ---------------------------------------------------------------------------
 # Utility helpers
@@ -1295,23 +1291,8 @@ def _sql_schedule_repository() -> SqlScheduleRepository:
     return SqlScheduleRepository()
 
 
-_DATABASE_UNAVAILABLE = False
-
-
 def get_schedule_repository() -> ScheduleRepository:
     """Return the configured schedule repository."""
-    global _DATABASE_UNAVAILABLE
-    if not _DATABASE_UNAVAILABLE and is_database_configured():
-        try:
-            engine = get_engine()
-            if engine is not None:
-                with engine.connect() as connection:  # sanity check availability
-                    connection.execute(text("SELECT 1"))
-                return _sql_schedule_repository()
-        except OperationalError as exc:
-            logger.warning(
-                "Database connection unavailable; falling back to in-memory schedules.",
-                error=str(exc),
-            )
-            _DATABASE_UNAVAILABLE = True
+    if is_database_configured() and get_engine() is not None:
+        return _sql_schedule_repository()
     return _default_schedule_repository()

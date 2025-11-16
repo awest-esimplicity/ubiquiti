@@ -365,7 +365,8 @@ class ScheduleGroupListResponse(CamelModel):
 
 
 class ScheduleGroupActivateRequest(CamelModel):
-    active: bool = Field(alias="active")
+    active: bool | None = Field(default=None, alias="active")
+    schedule_id: str | None = Field(default=None, alias="scheduleId")
 
 
 __all__ = [

@@ -945,8 +945,11 @@ def activate_schedule_group(
     request: Request,
 ) -> schemas.ScheduleGroup:
     schedule_repo = get_schedule_repository()
+    active_flag = payload.active
+    if active_flag is None:
+        active_flag = payload.schedule_id is not None
     try:
-        group = schedule_repo.set_group_active(group_id, payload.active)
+        group = schedule_repo.set_group_active(group_id, active_flag)
     except ValueError as exc:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
     if group is None:
@@ -960,7 +963,8 @@ def activate_schedule_group(
         actor=actor,
         reason=reason,
         metadata={
-            "active": payload.active,
+            "active": active_flag,
+            "schedule_id": payload.schedule_id,
             "owner_key": group[0].owner_key,
         },
     )

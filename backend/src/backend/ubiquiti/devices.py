@@ -8,8 +8,7 @@ from dataclasses import dataclass
 from functools import lru_cache
 from typing import Protocol
 
-from sqlalchemy import select, text
-from sqlalchemy.exc import OperationalError
+from sqlalchemy import select
 from sqlalchemy.orm import Session, sessionmaker
 
 from ..database import get_engine, get_session_factory, is_database_configured
@@ -301,21 +300,13 @@ def _get_sql_repository() -> SQLAlchemyDeviceRepository:
     return _SQL_REPOSITORY
 
 
-_DEVICE_DB_UNAVAILABLE = False
-
-
 def get_device_repository() -> DeviceRepository:
     """Return the configured device repository."""
-    global _DEVICE_DB_UNAVAILABLE
-    if not _DEVICE_DB_UNAVAILABLE and is_database_configured():
+    if is_database_configured() and get_engine() is not None:
         try:
-            engine = get_engine()
-            if engine is not None:
-                with engine.connect() as connection:
-                    connection.execute(text("SELECT 1"))
-                return _get_sql_repository()
-        except (RuntimeError, OperationalError):
-            _DEVICE_DB_UNAVAILABLE = True
+            return _get_sql_repository()
+        except RuntimeError:
+            return _default_device_repository()
     return _default_device_repository()
 
 

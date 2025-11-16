@@ -195,6 +195,13 @@ def test_schedule_group_lifecycle():
         detail = client.get(f"/api/schedules/{schedule['id']}").json()
         assert detail["enabled"] is True
 
+    legacy_response = client.post(
+        f"/api/schedule-groups/{group_id}/activate",
+        json={"scheduleId": schedule_one["id"]},
+    )
+    assert legacy_response.status_code == 200
+    assert legacy_response.json()["isActive"] is True
+
     delete_response = client.delete(f"/api/schedule-groups/{group_id}")
     assert delete_response.status_code == 204
 
