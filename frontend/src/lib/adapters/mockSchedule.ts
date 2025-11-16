@@ -11,7 +11,7 @@ import type {
 } from "@/lib/domain/schedules";
 import type { SchedulePort } from "@/lib/ports/SchedulePort";
 
-function clone<T>(value: T): T {
+function deepClone<T>(value: T): T {
   return JSON.parse(JSON.stringify(value)) as T;
 }
 
@@ -19,120 +19,228 @@ function generateId(prefix: string): string {
   return `${prefix}-${Date.now().toString(16)}-${Math.random().toString(16).slice(2, 8)}`;
 }
 
+interface InternalGroup {
+  id: string;
+  name: string;
+  ownerKey?: string;
+  description?: string;
+  isActive: boolean;
+  createdAt: string;
+  updatedAt: string;
+  scheduleIds: Set<string>;
+}
+
 export class MockScheduleAdapter implements SchedulePort {
   private config: ScheduleConfig;
-  private groups: ScheduleGroup[];
+  private groups: Map<string, InternalGroup>;
+  private scheduleMemberships: Map<string, Set<string>>;
 
   constructor() {
-    this.config = clone(scheduleConfig as ScheduleConfig);
-    this.groups = [];
+    this.config = deepClone(scheduleConfig as ScheduleConfig);
+    this.config.schedules = this.config.schedules.map((schedule) => {
+      const legacyGroupId = (schedule as DeviceSchedule & { groupId?: string }).groupId;
+      const legacyGroupIds = (schedule as DeviceSchedule & { groupIds?: string[] }).groupIds;
+      return {
+        ...schedule,
+        groupIds: Array.isArray(legacyGroupIds)
+          ? [...legacyGroupIds]
+          : legacyGroupId
+          ? [legacyGroupId]
+          : [],
+      };
+    });
+    this.groups = new Map();
+    this.scheduleMemberships = new Map();
+  }
+
+  private cloneSchedule(schedule: DeviceSchedule): DeviceSchedule {
+    return deepClone(schedule);
+  }
+
+  private findSchedule(scheduleId: string): DeviceSchedule | undefined {
+    return this.config.schedules.find((schedule) => schedule.id === scheduleId);
+  }
+
+  private ensureSchedule(scheduleId: string): DeviceSchedule {
+    const schedule = this.findSchedule(scheduleId);
+    if (!schedule) {
+      throw new Error(`Schedule ${scheduleId} not found`);
+    }
+    return schedule;
+  }
+
+  private ensureGroup(groupId: string): InternalGroup {
+    const group = this.groups.get(groupId);
+    if (!group) {
+      throw new Error(`Schedule group ${groupId} not found`);
+    }
+    return group;
+  }
+
+  private addMembership(group: InternalGroup, scheduleId: string): void {
+    const schedule = this.ensureSchedule(scheduleId);
+    if (!schedule.groupIds.includes(group.id)) {
+      schedule.groupIds.push(group.id);
+      schedule.updatedAt = new Date().toISOString();
+    }
+    group.scheduleIds.add(scheduleId);
+    const memberships = this.scheduleMemberships.get(scheduleId) ?? new Set<string>();
+    memberships.add(group.id);
+    this.scheduleMemberships.set(scheduleId, memberships);
+  }
+
+  private removeMembership(group: InternalGroup, scheduleId: string): void {
+    const schedule = this.ensureSchedule(scheduleId);
+    if (schedule.groupIds.includes(group.id)) {
+      schedule.groupIds = schedule.groupIds.filter((id) => id !== group.id);
+      schedule.updatedAt = new Date().toISOString();
+    }
+    group.scheduleIds.delete(scheduleId);
+    const memberships = this.scheduleMemberships.get(scheduleId);
+    if (memberships) {
+      memberships.delete(group.id);
+      if (memberships.size === 0) {
+        this.scheduleMemberships.delete(scheduleId);
+      }
+    }
+  }
+
+  private enforceActivation(): void {
+    const activeGroups = new Set(
+      [...this.groups.values()].filter((group) => group.isActive).map((group) => group.id),
+    );
+    if (activeGroups.size === 0) {
+      // When no groups are active we disable only the schedules that belong to any group.
+      for (const schedule of this.config.schedules) {
+        if (this.scheduleMemberships.has(schedule.id)) {
+          if (schedule.enabled !== false) {
+            schedule.enabled = false;
+            schedule.updatedAt = new Date().toISOString();
+          }
+        }
+      }
+      return;
+    }
+
+    const now = new Date().toISOString();
+    for (const schedule of this.config.schedules) {
+      const memberships = this.scheduleMemberships.get(schedule.id);
+      if (!memberships || memberships.size === 0) {
+        continue;
+      }
+      const shouldEnable = [...memberships].some((groupId) => activeGroups.has(groupId));
+      if (schedule.enabled !== shouldEnable) {
+        schedule.enabled = shouldEnable;
+        schedule.updatedAt = now;
+      }
+    }
+  }
+
+  private toScheduleGroup(group: InternalGroup): ScheduleGroup {
+    const schedules = [...group.scheduleIds]
+      .map((scheduleId) => this.findSchedule(scheduleId))
+      .filter((schedule): schedule is DeviceSchedule => Boolean(schedule))
+      .map((schedule) => this.cloneSchedule(schedule));
+    return {
+      id: group.id,
+      ownerKey: group.ownerKey,
+      name: group.name,
+      description: group.description,
+      isActive: group.isActive,
+      createdAt: group.createdAt,
+      updatedAt: group.updatedAt,
+      schedules,
+    };
   }
 
   loadConfig(): Promise<ScheduleConfig> {
-    return Promise.resolve(clone(this.config));
+    return Promise.resolve(deepClone(this.config));
   }
 
   loadOwnerSchedules(ownerKey: string): Promise<OwnerScheduleSnapshot> {
-    const ownerSchedules = this.config.schedules.filter(
-      (schedule) => schedule.scope === "owner" && schedule.ownerKey === ownerKey,
-    );
-    const globalSchedules = this.config.schedules.filter((schedule) => schedule.scope === "global");
+    const ownerSchedules = this.config.schedules
+      .filter((schedule) => schedule.scope === "owner" && schedule.ownerKey === ownerKey)
+      .map((schedule) => this.cloneSchedule(schedule));
+    const globalSchedules = this.config.schedules
+      .filter((schedule) => schedule.scope === "global")
+      .map((schedule) => this.cloneSchedule(schedule));
     return Promise.resolve({
-      metadata: clone(this.config.metadata),
-      ownerSchedules: clone(ownerSchedules),
-      globalSchedules: clone(globalSchedules),
+      metadata: deepClone(this.config.metadata),
+      ownerSchedules,
+      globalSchedules,
     });
   }
 
   loadGroups(ownerKey: string): Promise<ScheduleGroupList> {
-    const ownerGroups = this.groups.filter((group) => group.ownerKey === ownerKey);
-    const globalGroups = this.groups.filter((group) => !group.ownerKey);
-    const mapGroup = (group: ScheduleGroup): ScheduleGroup => ({
-      ...clone(group),
-      schedules: clone(
-        this.config.schedules.filter((schedule) => schedule.groupId === group.id),
-      ),
-    });
-    return Promise.resolve({
-      ownerGroups: ownerGroups.map(mapGroup),
-      globalGroups: globalGroups.map(mapGroup),
-    });
+    const ownerGroups = [...this.groups.values()]
+      .filter((group) => group.ownerKey === ownerKey)
+      .map((group) => this.toScheduleGroup(group));
+    const globalGroups = [...this.groups.values()]
+      .filter((group) => !group.ownerKey)
+      .map((group) => this.toScheduleGroup(group));
+    return Promise.resolve({ ownerGroups, globalGroups });
   }
 
   async createSchedule(input: CreateScheduleInput): Promise<DeviceSchedule> {
     const now = new Date().toISOString();
-    const idPrefix =
-      input.scope === "owner" && input.ownerKey ? `owner-${input.ownerKey}` : "global";
-
+    const id = generateId(input.scope === "owner" && input.ownerKey ? input.ownerKey : "global");
     const schedule: DeviceSchedule = {
-      id: `${idPrefix}-${Date.now()}`,
+      id,
       scope: input.scope,
       ownerKey: input.ownerKey,
-      groupId: input.groupId ?? undefined,
+      groupIds: [...(input.groupIds ?? [])],
       label: input.label,
       description: input.description,
-      targets: clone(input.targets),
+      targets: deepClone(input.targets),
       action: input.action,
       endAction: input.endAction,
-      window: clone(input.window),
-      recurrence: clone(input.recurrence),
-      exceptions: clone(input.exceptions ?? []),
+      window: deepClone(input.window),
+      recurrence: deepClone(input.recurrence),
+      exceptions: deepClone(input.exceptions ?? []),
       enabled: input.enabled ?? true,
       createdAt: now,
       updatedAt: now,
     };
-
     this.config.schedules.push(schedule);
-    if (schedule.groupId) {
-      const group = this.groups.find((item) => item.id === schedule.groupId);
-      if (group) {
-        if (!group.activeScheduleId) {
-          group.activeScheduleId = schedule.id;
-          this.setGroupActive(group.id, schedule.id);
-        } else {
-          schedule.enabled = group.activeScheduleId === schedule.id;
-        }
-        group.updatedAt = now;
-      }
+    for (const groupId of schedule.groupIds) {
+      const group = this.ensureGroup(groupId);
+      this.addMembership(group, schedule.id);
     }
-    return Promise.resolve(clone(schedule));
+    this.enforceActivation();
+    return Promise.resolve(this.cloneSchedule(schedule));
   }
 
   deleteSchedule(scheduleId: string): Promise<void> {
-    const schedule = this.config.schedules.find((item) => item.id === scheduleId);
-    this.config.schedules = this.config.schedules.filter((item) => item.id !== scheduleId);
-    if (schedule?.groupId) {
-      const group = this.groups.find((item) => item.id === schedule.groupId);
-      if (group) {
-        if (group.activeScheduleId === scheduleId) {
-          const remaining = this.config.schedules.find((item) => item.groupId === group.id);
-          group.activeScheduleId = remaining?.id;
-          this.setGroupActive(group.id, group.activeScheduleId ?? undefined);
-        }
-        group.updatedAt = new Date().toISOString();
-      }
+    const index = this.config.schedules.findIndex((schedule) => schedule.id === scheduleId);
+    if (index === -1) {
+      return Promise.resolve();
     }
+    const schedule = this.config.schedules[index];
+    for (const groupId of [...schedule.groupIds]) {
+      const group = this.ensureGroup(groupId);
+      this.removeMembership(group, scheduleId);
+    }
+    this.config.schedules.splice(index, 1);
+    this.scheduleMemberships.delete(scheduleId);
+    this.enforceActivation();
     return Promise.resolve();
   }
 
   async cloneSchedule(scheduleId: string, targetOwner: string): Promise<DeviceSchedule> {
-    const source = this.config.schedules.find((schedule) => schedule.id === scheduleId);
-    if (!source) {
-      return Promise.reject(new Error("Schedule not found"));
-    }
+    const source = this.ensureSchedule(scheduleId);
     const now = new Date().toISOString();
-    const clonedSchedule: DeviceSchedule = {
-      ...clone(source),
+    const clone: DeviceSchedule = {
+      ...this.cloneSchedule(source),
       id: generateId(`owner-${targetOwner}`),
       scope: "owner",
       ownerKey: targetOwner,
-      groupId: undefined,
+      groupIds: [],
       enabled: true,
       createdAt: now,
       updatedAt: now,
     };
-    this.config.schedules.push(clonedSchedule);
-    return Promise.resolve(clone(clonedSchedule));
+    this.config.schedules.push(clone);
+    return Promise.resolve(this.cloneSchedule(clone));
   }
 
   copyOwnerSchedules(
@@ -149,83 +257,65 @@ export class MockScheduleAdapter implements SchedulePort {
 
     let replacedCount = 0;
     if (mode === "replace") {
-      const remaining = this.config.schedules.filter((schedule) => {
-        const replaceCandidate =
-          schedule.scope === "owner" && schedule.ownerKey === targetOwner;
-        if (replaceCandidate) {
-          replacedCount += 1;
-          return false;
+      const toRemove = this.config.schedules.filter(
+        (schedule) => schedule.scope === "owner" && schedule.ownerKey === targetOwner,
+      );
+      replacedCount = toRemove.length;
+      for (const schedule of toRemove) {
+        for (const groupId of [...schedule.groupIds]) {
+          const group = this.ensureGroup(groupId);
+          this.removeMembership(group, schedule.id);
         }
-        return true;
-      });
-      this.config.schedules = remaining;
+        this.scheduleMemberships.delete(schedule.id);
+      }
+      this.config.schedules = this.config.schedules.filter((schedule) => !toRemove.includes(schedule));
     }
 
     const created: DeviceSchedule[] = [];
     for (const schedule of sourceSchedules) {
       const now = new Date().toISOString();
-      const copy: DeviceSchedule = {
-        ...clone(schedule),
+      const clone: DeviceSchedule = {
+        ...this.cloneSchedule(schedule),
         id: generateId(`owner-${targetOwner}`),
         scope: "owner",
         ownerKey: targetOwner,
-        groupId: undefined,
+        groupIds: [],
         enabled: true,
         createdAt: now,
         updatedAt: now,
       };
-      this.config.schedules.push(copy);
-      created.push(clone(copy));
+      this.config.schedules.push(clone);
+      created.push(this.cloneSchedule(clone));
     }
-
     return Promise.resolve({ created, replacedCount });
   }
 
   createGroup(input: CreateScheduleGroupInput): Promise<ScheduleGroup> {
     const now = new Date().toISOString();
     const id = generateId("group");
-    const group: ScheduleGroup = {
+    const group: InternalGroup = {
       id,
       ownerKey: input.ownerKey,
       name: input.name,
       description: input.description,
-      activeScheduleId: input.activeScheduleId ?? input.scheduleIds[0] ?? undefined,
+      isActive: Boolean(input.isActive),
       createdAt: now,
       updatedAt: now,
-      schedules: [],
+      scheduleIds: new Set<string>(),
     };
-    this.groups.push(group);
-
-    this.config.schedules = this.config.schedules.map((schedule) => {
-      if (input.scheduleIds.includes(schedule.id)) {
-        return {
-          ...schedule,
-          groupId: id,
-          enabled: group.activeScheduleId
-            ? schedule.id === group.activeScheduleId
-            : schedule.enabled,
-        };
-      }
-      return schedule;
-    });
-
-    if (group.activeScheduleId) {
-      this.setGroupActive(id, group.activeScheduleId);
+    this.groups.set(id, group);
+    for (const scheduleId of input.scheduleIds) {
+      this.addMembership(group, scheduleId);
     }
-
-    return Promise.resolve({
-      ...group,
-      schedules: clone(
-        this.config.schedules.filter((schedule) => schedule.groupId === id),
-      ),
-    });
+    if (group.scheduleIds.size === 0) {
+      group.isActive = false;
+    }
+    this.enforceActivation();
+    return Promise.resolve(this.toScheduleGroup(group));
   }
 
   updateGroup(input: UpdateScheduleGroupInput): Promise<ScheduleGroup> {
-    const group = this.groups.find((item) => item.id === input.groupId);
-    if (!group) {
-      return Promise.reject(new Error("Group not found"));
-    }
+    const group = this.ensureGroup(input.groupId);
     const now = new Date().toISOString();
     if (input.name !== undefined) {
       group.name = input.name;
@@ -233,72 +323,45 @@ export class MockScheduleAdapter implements SchedulePort {
     if (input.description !== undefined) {
       group.description = input.description;
     }
-    if (input.scheduleIds) {
+    if (input.scheduleIds !== undefined) {
       const desired = new Set(input.scheduleIds);
-      this.config.schedules = this.config.schedules.map((schedule) => {
-        if (schedule.groupId === group.id && !desired.has(schedule.id)) {
-          return { ...schedule, groupId: undefined };
+      for (const scheduleId of [...group.scheduleIds]) {
+        if (!desired.has(scheduleId)) {
+          this.removeMembership(group, scheduleId);
         }
-        if (desired.has(schedule.id)) {
-          return { ...schedule, groupId: group.id };
+      }
+      for (const scheduleId of desired) {
+        if (!group.scheduleIds.has(scheduleId)) {
+          this.addMembership(group, scheduleId);
         }
-        return schedule;
-      });
-      if (input.activeScheduleId && !desired.has(input.activeScheduleId)) {
-        return Promise.reject(new Error("activeScheduleId must be part of scheduleIds"));
+      }
+      if (group.scheduleIds.size === 0) {
+        group.isActive = false;
       }
     }
-    if (input.activeScheduleId !== undefined) {
-      group.activeScheduleId = input.activeScheduleId || undefined;
+    if (input.isActive !== undefined) {
+      group.isActive = input.isActive;
     }
     group.updatedAt = now;
-    if (group.activeScheduleId) {
-      this.setGroupActive(group.id, group.activeScheduleId);
-    }
-    return Promise.resolve({
-      ...group,
-      schedules: clone(
-        this.config.schedules.filter((schedule) => schedule.groupId === group.id),
-      ),
-    });
+    this.enforceActivation();
+    return Promise.resolve(this.toScheduleGroup(group));
   }
 
   deleteGroup(groupId: string): Promise<void> {
-    this.groups = this.groups.filter((group) => group.id !== groupId);
-    this.config.schedules = this.config.schedules.map((schedule) =>
-      schedule.groupId === groupId ? { ...schedule, groupId: undefined } : schedule,
-    );
+    const group = this.ensureGroup(groupId);
+    for (const scheduleId of [...group.scheduleIds]) {
+      this.removeMembership(group, scheduleId);
+    }
+    this.groups.delete(groupId);
+    this.enforceActivation();
     return Promise.resolve();
   }
 
-  activateGroup(groupId: string, scheduleId: string): Promise<ScheduleGroup> {
-    const group = this.groups.find((item) => item.id === groupId);
-    if (!group) {
-      return Promise.reject(new Error("Group not found"));
-    }
-    const scheduleExists = this.config.schedules.some(
-      (schedule) => schedule.id === scheduleId && schedule.groupId === groupId,
-    );
-    if (!scheduleExists) {
-      return Promise.reject(new Error("Schedule does not belong to group"));
-    }
-    group.activeScheduleId = scheduleId;
+  toggleGroupActivation(groupId: string, active: boolean): Promise<ScheduleGroup> {
+    const group = this.ensureGroup(groupId);
+    group.isActive = active;
     group.updatedAt = new Date().toISOString();
-    this.setGroupActive(group.id, scheduleId);
-    return Promise.resolve({
-      ...group,
-      schedules: clone(
-        this.config.schedules.filter((schedule) => schedule.groupId === group.id),
-      ),
-    });
-  }
-
-  private setGroupActive(groupId: string, scheduleId: string | undefined): void {
-    this.config.schedules = this.config.schedules.map((schedule) => {
-      if (schedule.groupId === groupId) {
-        return { ...schedule, enabled: schedule.id === scheduleId };
-      }
-      return schedule;
-    });
+    this.enforceActivation();
+    return Promise.resolve(this.toScheduleGroup(group));
   }
 }

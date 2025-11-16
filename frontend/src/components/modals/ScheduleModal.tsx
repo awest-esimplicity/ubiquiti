@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { Button } from "@/components/ui/button";
 import type { OwnerInfo } from "@/lib/api/types";
@@ -87,7 +87,7 @@ interface GroupFormValues {
   name: string;
   description: string;
   scheduleIds: string[];
-  activeScheduleId?: string;
+  isActive: boolean;
 }
 
 export function ScheduleModal({ ownerKey, ownerName, onClose }: ScheduleModalProps) {
@@ -116,44 +116,118 @@ export function ScheduleModal({ ownerKey, ownerName, onClose }: ScheduleModalPro
   const [groupSubmitting, setGroupSubmitting] = useState(false);
   const [groupDialogError, setGroupDialogError] = useState<string>();
   const [deletingGroupIds, setDeletingGroupIds] = useState<Set<string>>(new Set());
-  const [activatingGroupKey, setActivatingGroupKey] = useState<string | null>(null);
+  const [togglingGroupId, setTogglingGroupId] = useState<string | null>(null);
+  const isMountedRef = useRef(true);
 
   useEffect(() => {
-    let cancelled = false;
+    isMountedRef.current = true;
+    return () => {
+      isMountedRef.current = false;
+    };
+  }, []);
 
-    const load = async () => {
+  const loadOwnerSchedules = useCallback(
+    async (options?: { silent?: boolean }) => {
+      const silent = options?.silent ?? false;
+      if (!silent) {
+        setState((prev) => ({
+          ...prev,
+          loading: true,
+          error: undefined
+        }));
+      } else {
+        setState((prev) => ({
+          ...prev,
+          error: undefined
+        }));
+      }
+
       try {
         const result = await scheduleService.getSchedulesForOwner(ownerKey);
-        if (!cancelled) {
-          setState({
-            loading: false,
-            ownerSchedules: result.ownerSchedules,
-            globalSchedules: result.globalSchedules,
-            metadata: result.metadata
-          });
+        if (!isMountedRef.current) {
+          return;
         }
+        setState({
+          loading: false,
+          ownerSchedules: result.ownerSchedules,
+          globalSchedules: result.globalSchedules,
+          metadata: result.metadata
+        });
       } catch (error) {
-        if (!cancelled) {
-          const message = error instanceof Error ? error.message : "Failed to load schedules.";
-          setState({
-            loading: false,
-            ownerSchedules: [],
-            globalSchedules: [],
-            metadata: undefined,
-            error: message
-          });
+        if (!isMountedRef.current) {
+          return;
         }
+        const message =
+          error instanceof Error ? error.message : "Failed to load events.";
+        setState({
+          loading: false,
+          ownerSchedules: [],
+          globalSchedules: [],
+          metadata: undefined,
+          error: message
+        });
       }
-    };
+    },
+    [ownerKey]
+  );
 
-    setState((prev) => ({ ...prev, loading: true, error: undefined }));
+  const loadScheduleGroups = useCallback(
+    async (options?: { silent?: boolean }) => {
+      const silent = options?.silent ?? false;
+      if (!silent) {
+        setGroupState((prev) => ({
+          ...prev,
+          loading: true,
+          error: undefined
+        }));
+      } else {
+        setGroupState((prev) => ({
+          ...prev,
+          error: undefined
+        }));
+      }
+
+      try {
+        const result = await scheduleService.getScheduleGroups(ownerKey);
+        if (!isMountedRef.current) {
+          return;
+        }
+        setGroupState({
+          loading: false,
+          ownerGroups: result.ownerGroups,
+          globalGroups: result.globalGroups
+        });
+      } catch (error) {
+        if (!isMountedRef.current) {
+          return;
+        }
+        const message =
+          error instanceof Error ? error.message : "Failed to load schedule groups.";
+        setGroupState({
+          loading: false,
+          ownerGroups: [],
+          globalGroups: [],
+          error: message
+        });
+      }
+    },
+    [ownerKey]
+  );
+
+  const refreshSchedulesAndGroups = useCallback(
+    async (options?: { silent?: boolean }) => {
+      await Promise.all([
+        loadOwnerSchedules(options),
+        loadScheduleGroups(options)
+      ]);
+    },
+    [loadOwnerSchedules, loadScheduleGroups]
+  );
+
+  useEffect(() => {
     setForm(INITIAL_FORM);
-    void load();
-
-    return () => {
-      cancelled = true;
-    };
-  }, [ownerKey]);
+    void loadOwnerSchedules();
+  }, [ownerKey, loadOwnerSchedules]);
 
   useEffect(() => {
     let cancelled = false;
@@ -184,41 +258,8 @@ export function ScheduleModal({ ownerKey, ownerName, onClose }: ScheduleModalPro
   }, []);
 
   useEffect(() => {
-    let cancelled = false;
-    setGroupState((prev) => ({
-      ...prev,
-      loading: true,
-      error: undefined
-    }));
-
-    scheduleService
-      .getScheduleGroups(ownerKey)
-      .then((result) => {
-        if (!cancelled) {
-          setGroupState({
-            loading: false,
-            ownerGroups: result.ownerGroups,
-            globalGroups: result.globalGroups
-          });
-        }
-      })
-      .catch((error: unknown) => {
-        if (!cancelled) {
-          const message =
-            error instanceof Error ? error.message : "Failed to load schedule groups.";
-          setGroupState({
-            loading: false,
-            ownerGroups: [],
-            globalGroups: [],
-            error: message
-          });
-        }
-      });
-
-    return () => {
-      cancelled = true;
-    };
-  }, [ownerKey]);
+    void loadScheduleGroups();
+  }, [ownerKey, loadScheduleGroups]);
 
   const timezone = state.metadata?.timezone ?? "UTC";
 
@@ -317,7 +358,7 @@ export function ScheduleModal({ ownerKey, ownerName, onClose }: ScheduleModalPro
 
   const handleOpenCreateGroup = (scope: GroupScope) => {
     if (getSchedulesForScope(scope).length === 0) {
-      setGroupDialogError("Create a schedule before building a group.");
+      setGroupDialogError("Create an event before building a schedule group.");
       return;
     }
     setGroupDialogError(undefined);
@@ -345,8 +386,9 @@ export function ScheduleModal({ ownerKey, ownerName, onClose }: ScheduleModalPro
     if (!groupDialog) {
       return;
     }
-    if (values.scheduleIds.length === 0) {
-      setGroupDialogError("Select at least one schedule.");
+    const hasSchedules = values.scheduleIds.length > 0;
+    if (!hasSchedules && values.isActive) {
+      setGroupDialogError("Add at least one event before activating the schedule group.");
       return;
     }
     const trimmedName = values.name.trim();
@@ -358,20 +400,19 @@ export function ScheduleModal({ ownerKey, ownerName, onClose }: ScheduleModalPro
     const scope = groupDialog.scope;
     const description = values.description.trim();
     const scheduleIds = values.scheduleIds;
-    const activeScheduleId = scheduleIds.includes(values.activeScheduleId ?? "")
-      ? values.activeScheduleId
-      : scheduleIds[0];
+    const isActive = values.isActive && hasSchedules;
 
     setGroupSubmitting(true);
     setGroupDialogError(undefined);
 
+    let succeeded = false;
     try {
       if (groupDialog.mode === "create") {
         const created = await scheduleService.createGroup({
           name: trimmedName,
           description: description || undefined,
           scheduleIds,
-          activeScheduleId,
+          isActive,
           ownerKey: scope === "owner" ? ownerKey : undefined
         });
         setGroupState((prev) => ({
@@ -388,7 +429,7 @@ export function ScheduleModal({ ownerKey, ownerName, onClose }: ScheduleModalPro
           name: trimmedName,
           description: description || undefined,
           scheduleIds,
-          activeScheduleId
+          isActive
         });
         setGroupState((prev) => ({
           ...prev,
@@ -405,18 +446,22 @@ export function ScheduleModal({ ownerKey, ownerName, onClose }: ScheduleModalPro
       }
       setGroupDialog(null);
       setGroupDialogError(undefined);
+      succeeded = true;
     } catch (error) {
       const message = error instanceof Error ? error.message : "Failed to save group.";
       setGroupDialogError(message);
     } finally {
       setGroupSubmitting(false);
     }
+    if (succeeded) {
+      void refreshSchedulesAndGroups({ silent: true });
+    }
   };
 
   const handleDeleteGroup = async (group: ScheduleGroup, scope: GroupScope) => {
     const confirmDelete =
       typeof window !== "undefined"
-        ? window.confirm(`Delete “${group.name}”? This will not remove schedules.`)
+        ? window.confirm(`Delete “${group.name}”? This will not remove events.`)
         : true;
     if (!confirmDelete) {
       return;
@@ -428,6 +473,7 @@ export function ScheduleModal({ ownerKey, ownerName, onClose }: ScheduleModalPro
       return next;
     });
 
+    let succeeded = false;
     try {
       await scheduleService.deleteGroup(group.id);
       setGroupState((prev) => ({
@@ -442,6 +488,7 @@ export function ScheduleModal({ ownerKey, ownerName, onClose }: ScheduleModalPro
             ? prev.globalGroups.filter((entry) => entry.id !== group.id)
             : prev.globalGroups
       }));
+      succeeded = true;
     } catch (error) {
       const message = error instanceof Error ? error.message : "Failed to delete group.";
       setGroupState((prev) => ({
@@ -455,37 +502,57 @@ export function ScheduleModal({ ownerKey, ownerName, onClose }: ScheduleModalPro
         return next;
       });
     }
+    if (succeeded) {
+      void refreshSchedulesAndGroups({ silent: true });
+    }
   };
 
-  const handleActivateSchedule = async (
+  const handleToggleGroupActive = async (
     group: ScheduleGroup,
     scope: GroupScope,
-    scheduleId: string
+    active: boolean
   ) => {
-    setActivatingGroupKey(`${group.id}:${scheduleId}`);
+    setTogglingGroupId(group.id);
     try {
-      const updated = await scheduleService.activateGroup(group.id, scheduleId);
+      const updated = await scheduleService.toggleGroupActivation(group.id, active);
       setGroupState((prev) => ({
         ...prev,
         error: undefined,
         ownerGroups:
           scope === "owner"
-            ? prev.ownerGroups.map((entry) => (entry.id === updated.id ? updated : entry))
+            ? prev.ownerGroups.map((entry) => {
+                if (entry.id === updated.id) {
+                  return updated;
+                }
+                if (active) {
+                  return { ...entry, isActive: false };
+                }
+                return entry;
+              })
             : prev.ownerGroups,
         globalGroups:
           scope === "global"
-            ? prev.globalGroups.map((entry) => (entry.id === updated.id ? updated : entry))
+            ? prev.globalGroups.map((entry) => {
+                if (entry.id === updated.id) {
+                  return updated;
+                }
+                if (active) {
+                  return { ...entry, isActive: false };
+                }
+                return entry;
+              })
             : prev.globalGroups
       }));
+      void refreshSchedulesAndGroups({ silent: true });
     } catch (error) {
       const message =
-        error instanceof Error ? error.message : "Failed to activate schedule in group.";
+        error instanceof Error ? error.message : "Failed to update group activation.";
       setGroupState((prev) => ({
         ...prev,
         error: message
       }));
     } finally {
-      setActivatingGroupKey(null);
+      setTogglingGroupId(null);
     }
   };
 
@@ -525,7 +592,7 @@ export function ScheduleModal({ ownerKey, ownerName, onClose }: ScheduleModalPro
       }
       setCopyState(null);
     } catch (error) {
-      const message = error instanceof Error ? error.message : "Failed to copy schedules.";
+      const message = error instanceof Error ? error.message : "Failed to copy events.";
       setCopyError(message);
     } finally {
       setCopying(false);
@@ -570,7 +637,7 @@ export function ScheduleModal({ ownerKey, ownerName, onClose }: ScheduleModalPro
     setSubmitting(true);
     scheduleService
       .createEventForOwner(ownerKey, {
-        label: form.label || `${ownerName} schedule`,
+        label: form.label || `${ownerName} event`,
         description: form.description,
         start: startDate.toISOString(),
         end: endDate.toISOString(),
@@ -587,7 +654,7 @@ export function ScheduleModal({ ownerKey, ownerName, onClose }: ScheduleModalPro
         setIsFormOpen(false);
       })
       .catch((error: unknown) => {
-        const message = error instanceof Error ? error.message : "Failed to create schedule.";
+        const message = error instanceof Error ? error.message : "Failed to create event.";
         setFormError(message);
       })
       .finally(() => {
@@ -616,7 +683,7 @@ export function ScheduleModal({ ownerKey, ownerName, onClose }: ScheduleModalPro
         });
       })
       .catch((error: unknown) => {
-        const message = error instanceof Error ? error.message : "Failed to delete schedule.";
+        const message = error instanceof Error ? error.message : "Failed to delete event.";
         setState((prev) => ({
           ...prev,
           error: message
@@ -636,7 +703,7 @@ export function ScheduleModal({ ownerKey, ownerName, onClose }: ScheduleModalPro
       <div className="relative h-[90vh] w-full max-w-4xl overflow-hidden rounded-3xl border border-slate-700/40 bg-slate-900/95 shadow-[0_35px_90px_rgba(10,12,34,0.65)]">
         <header className="flex items-center justify-between border-b border-slate-700/40 px-6 py-4">
           <div>
-            <h2 className="text-xl font-semibold text-slate-50">Schedule for {ownerName}</h2>
+            <h2 className="text-xl font-semibold text-slate-50">Events for {ownerName}</h2>
             <p className="text-xs uppercase tracking-[0.3em] text-slate-500">Timezone · {timezone}</p>
           </div>
           <div className="flex gap-2">
@@ -645,7 +712,7 @@ export function ScheduleModal({ ownerKey, ownerName, onClose }: ScheduleModalPro
               onClick={handleOpenBulkCopy}
               disabled={ownersLoading || availableOwners.length === 0 || copying}
             >
-              Copy owner schedules
+              Copy owner events
             </Button>
             <Button
               variant={isFormOpen ? "secondary" : "primary"}
@@ -673,7 +740,7 @@ export function ScheduleModal({ ownerKey, ownerName, onClose }: ScheduleModalPro
           <section className="flex-1 overflow-y-auto px-6 py-4 space-y-6">
             {state.loading ? (
               <div className="flex h-full items-center justify-center text-slate-400">
-                <span>Loading schedules…</span>
+                <span>Loading events…</span>
               </div>
             ) : (
               <>
@@ -708,18 +775,18 @@ export function ScheduleModal({ ownerKey, ownerName, onClose }: ScheduleModalPro
                   onCreateGroup={handleOpenCreateGroup}
                   onEditGroup={handleOpenEditGroup}
                   onDeleteGroup={handleDeleteGroup}
-                  onActivateSchedule={handleActivateSchedule}
+                  onToggleGroup={handleToggleGroupActive}
                   deletingGroupIds={deletingGroupIds}
-                  activatingKey={activatingGroupKey}
+                  togglingGroupId={togglingGroupId}
                   inlineError={!groupDialog ? groupDialogError : undefined}
                 />
 
                 <EventTimeline ownerName={ownerName} timeline={timelineEvents} />
                 <div className="grid gap-4 lg:grid-cols-2">
                   <EventList
-                    title={`${ownerName} schedules`}
+                    title={`${ownerName} events`}
                     schedules={sortedOwnerSchedules}
-                    emptyMessage="No schedules yet for this owner."
+                    emptyMessage="No events yet for this owner."
                     onDelete={(schedule) => handleDeleteSchedule(schedule, "owner")}
                     deletingIds={deletingIds}
                     onCopy={availableOwners.length === 0 ? undefined : handleCopySchedule}
@@ -727,9 +794,9 @@ export function ScheduleModal({ ownerKey, ownerName, onClose }: ScheduleModalPro
                     copyDisabled={copying || ownersLoading || availableOwners.length === 0}
                   />
                   <EventList
-                    title="Global schedules"
+                    title="Global events"
                     schedules={sortedGlobalSchedules}
-                    emptyMessage="No global schedules."
+                    emptyMessage="No global events."
                     onDelete={(schedule) => handleDeleteSchedule(schedule, "global")}
                     deletingIds={deletingIds}
                   />
@@ -791,11 +858,11 @@ function CopyScheduleDialog({
   error
 }: CopyScheduleDialogProps) {
   const disableConfirm = owners.length === 0 || (!state.targetOwner && owners.length > 0) || copying;
-  const title = state.mode === "single" ? "Copy schedule" : "Copy owner schedules";
+  const title = state.mode === "single" ? "Copy event" : "Copy owner events";
   const subtitle =
     state.mode === "single"
-      ? `Duplicate “${state.schedule?.label ?? "Schedule"}” to another owner`
-      : `Copy all schedules from ${ownerName} to another owner`;
+      ? `Duplicate “${state.schedule?.label ?? "Event"}” to another owner`
+      : `Copy all events from ${ownerName} to another owner`;
 
   return (
     <div className="absolute inset-0 z-[1400] flex items-center justify-center bg-slate-950/85 px-4">
@@ -833,7 +900,7 @@ function CopyScheduleDialog({
 
           {state.mode === "single" && state.schedule ? (
             <div className="rounded-2xl border border-slate-700/50 bg-slate-900/60 p-4 text-sm text-slate-300">
-              <p className="text-slate-100">Schedule</p>
+              <p className="text-slate-100">Event</p>
               <p className="mt-1 font-semibold text-slate-50">{state.schedule.label}</p>
               {state.schedule.description ? (
                 <p className="mt-1 text-xs text-slate-400">{state.schedule.description}</p>
@@ -850,7 +917,7 @@ function CopyScheduleDialog({
                 onChange={(event) => onToggleReplace(event.target.checked)}
                 disabled={copying}
               />
-              Replace existing schedules for the target owner
+              Replace existing events for the target owner
             </label>
           ) : null}
 
@@ -865,10 +932,10 @@ function CopyScheduleDialog({
             {copying
               ? "Copying…"
               : state.mode === "single"
-                ? "Copy schedule"
+                ? "Copy event"
                 : state.replace
                   ? "Copy & replace"
-                  : "Copy schedules"}
+                  : "Copy events"}
           </Button>
         </div>
       </div>
@@ -890,14 +957,14 @@ function EventTimeline({ ownerName, timeline }: EventTimelineProps) {
   if (timeline.length === 0) {
     return (
       <div className="rounded-3xl border border-slate-700/40 bg-slate-900/40 p-6 text-center text-sm text-slate-400">
-        No upcoming schedules yet.
+        No upcoming events yet.
       </div>
     );
   }
 
   return (
     <div className="rounded-3xl border border-slate-700/40 bg-gradient-to-br from-slate-900/80 via-slate-900/60 to-slate-900/80 p-6 shadow-inner">
-      <h3 className="text-sm uppercase tracking-[0.4em] text-slate-400">Upcoming schedules</h3>
+      <h3 className="text-sm uppercase tracking-[0.4em] text-slate-400">Upcoming events</h3>
       <div className="relative mt-5 pl-6">
         <div className="absolute left-[10px] top-0 h-full w-px bg-slate-700/60" />
         <div className="space-y-4">
@@ -958,9 +1025,9 @@ interface ScheduleGroupSectionProps {
   onCreateGroup: (scope: GroupScope) => void;
   onEditGroup: (group: ScheduleGroup, scope: GroupScope) => void;
   onDeleteGroup: (group: ScheduleGroup, scope: GroupScope) => void | Promise<void>;
-  onActivateSchedule: (group: ScheduleGroup, scope: GroupScope, scheduleId: string) => void | Promise<void>;
+  onToggleGroup: (group: ScheduleGroup, scope: GroupScope, active: boolean) => void | Promise<void>;
   deletingGroupIds: Set<string>;
-  activatingKey: string | null;
+  togglingGroupId: string | null;
   inlineError?: string;
 }
 
@@ -972,9 +1039,9 @@ function ScheduleGroupSection({
   onCreateGroup,
   onEditGroup,
   onDeleteGroup,
-  onActivateSchedule,
+  onToggleGroup,
   deletingGroupIds,
-  activatingKey,
+  togglingGroupId,
   inlineError
 }: ScheduleGroupSectionProps) {
   return (
@@ -985,7 +1052,7 @@ function ScheduleGroupSection({
             Schedule groups
           </h3>
           <p className="text-xs text-slate-500">
-            Bundle schedules and pick a single active policy per group.
+            Bundle events into schedule groups and toggle them on or off together.
           </p>
         </div>
         <div className="flex gap-2">
@@ -995,7 +1062,7 @@ function ScheduleGroupSection({
             onClick={() => onCreateGroup("owner")}
             disabled={ownerSchedules.length === 0}
           >
-            New owner group
+            New owner schedule group
           </Button>
           <Button
             variant="outline"
@@ -1003,7 +1070,7 @@ function ScheduleGroupSection({
             onClick={() => onCreateGroup("global")}
             disabled={globalSchedules.length === 0}
           >
-            New global group
+            New global schedule group
           </Button>
         </div>
       </header>
@@ -1019,35 +1086,35 @@ function ScheduleGroupSection({
       ) : null}
       {state.loading ? (
         <div className="flex items-center justify-center rounded-2xl border border-slate-700/40 bg-slate-900/60 p-6 text-sm text-slate-400">
-          Loading groups…
+          Loading schedule groups…
         </div>
       ) : (
         <div className="grid gap-4 lg:grid-cols-2">
           <GroupColumn
             scope="owner"
-            title={`${ownerName} groups`}
-            emptyMessage="No owner groups yet."
+            title={`${ownerName} schedule groups`}
+            emptyMessage="No owner schedule groups yet."
             groups={state.ownerGroups}
             schedules={ownerSchedules}
             onCreateGroup={onCreateGroup}
             onEditGroup={onEditGroup}
             onDeleteGroup={onDeleteGroup}
-            onActivateSchedule={onActivateSchedule}
+            onToggleGroup={onToggleGroup}
             deletingGroupIds={deletingGroupIds}
-            activatingKey={activatingKey}
+            togglingGroupId={togglingGroupId}
           />
           <GroupColumn
             scope="global"
-            title="Global groups"
-            emptyMessage="No global groups yet."
+            title="Global schedule groups"
+            emptyMessage="No global schedule groups yet."
             groups={state.globalGroups}
             schedules={globalSchedules}
             onCreateGroup={onCreateGroup}
             onEditGroup={onEditGroup}
             onDeleteGroup={onDeleteGroup}
-            onActivateSchedule={onActivateSchedule}
+            onToggleGroup={onToggleGroup}
             deletingGroupIds={deletingGroupIds}
-            activatingKey={activatingKey}
+            togglingGroupId={togglingGroupId}
           />
         </div>
       )}
@@ -1064,9 +1131,9 @@ interface GroupColumnProps {
   onCreateGroup: (scope: GroupScope) => void;
   onEditGroup: (group: ScheduleGroup, scope: GroupScope) => void;
   onDeleteGroup: (group: ScheduleGroup, scope: GroupScope) => void | Promise<void>;
-  onActivateSchedule: (group: ScheduleGroup, scope: GroupScope, scheduleId: string) => void | Promise<void>;
+  onToggleGroup: (group: ScheduleGroup, scope: GroupScope, active: boolean) => void | Promise<void>;
   deletingGroupIds: Set<string>;
-  activatingKey: string | null;
+  togglingGroupId: string | null;
 }
 
 function GroupColumn({
@@ -1078,9 +1145,9 @@ function GroupColumn({
   onCreateGroup,
   onEditGroup,
   onDeleteGroup,
-  onActivateSchedule,
+  onToggleGroup,
   deletingGroupIds,
-  activatingKey
+  togglingGroupId
 }: GroupColumnProps) {
   return (
     <div className="rounded-2xl border border-slate-700/30 bg-slate-900/40 p-4">
@@ -1093,7 +1160,7 @@ function GroupColumn({
           onClick={() => onCreateGroup(scope)}
           disabled={schedules.length === 0}
         >
-          Add group
+          Add schedule group
         </Button>
       </div>
       {groups.length === 0 ? (
@@ -1109,9 +1176,9 @@ function GroupColumn({
                 scope={scope}
                 onEditGroup={onEditGroup}
                 onDeleteGroup={onDeleteGroup}
-                onActivateSchedule={onActivateSchedule}
+                onToggleGroup={onToggleGroup}
                 deleting={deletingGroupIds.has(group.id)}
-                activatingKey={activatingKey}
+                toggling={togglingGroupId === group.id}
               />
             </li>
           ))}
@@ -1119,7 +1186,7 @@ function GroupColumn({
       )}
       {schedules.length === 0 ? (
         <p className="mt-3 text-xs text-slate-500">
-          Create {scope === "owner" ? "owner" : "global"} schedules to enable grouping.
+          Create {scope === "owner" ? "owner" : "global"} events to enable schedule groups.
         </p>
       ) : null}
     </div>
@@ -1131,9 +1198,9 @@ interface GroupCardProps {
   scope: GroupScope;
   onEditGroup: (group: ScheduleGroup, scope: GroupScope) => void;
   onDeleteGroup: (group: ScheduleGroup, scope: GroupScope) => void | Promise<void>;
-  onActivateSchedule: (group: ScheduleGroup, scope: GroupScope, scheduleId: string) => void | Promise<void>;
+  onToggleGroup: (group: ScheduleGroup, scope: GroupScope, active: boolean) => void | Promise<void>;
   deleting: boolean;
-  activatingKey: string | null;
+  toggling: boolean;
 }
 
 function GroupCard({
@@ -1141,30 +1208,36 @@ function GroupCard({
   scope,
   onEditGroup,
   onDeleteGroup,
-  onActivateSchedule,
+  onToggleGroup,
   deleting,
-  activatingKey
+  toggling
 }: GroupCardProps) {
-  const activeScheduleId = group.activeScheduleId;
   const schedules = group.schedules ?? [];
 
   return (
     <div className="rounded-2xl border border-slate-700/40 bg-slate-900/60 p-4 shadow-inner">
-      <div className="flex flex-wrap items-start justify-between gap-3">
-        <div className="min-w-0 flex-1">
-          <div className="flex items-center gap-2">
-            <p className="truncate text-sm font-semibold text-slate-100">{group.name}</p>
-            {scope === "global" ? (
-              <span className="rounded-full border border-slate-700/60 px-2 py-0.5 text-[10px] uppercase tracking-[0.25em] text-slate-400">
-                Global
-              </span>
-            ) : null}
-          </div>
-          {group.description ? (
-            <p className="mt-1 text-xs text-slate-400">{group.description}</p>
-          ) : null}
-        </div>
-        <div className="flex gap-2">
+      <div className="flex flex-wrap items-center gap-2">
+        <p className="text-base font-semibold leading-snug text-slate-50 break-words">{group.name}</p>
+        {scope === "global" ? (
+          <span className="rounded-full border border-slate-700/60 px-2 py-0.5 text-[10px] uppercase tracking-[0.25em] text-slate-400">
+            Global
+          </span>
+        ) : null}
+      </div>
+      {group.description ? (
+        <p className="mt-1 text-xs text-slate-400">{group.description}</p>
+      ) : null}
+      <div className="mt-3 flex flex-wrap items-center justify-between gap-2">
+        <span
+          className={`rounded-full border px-3 py-1 text-[11px] uppercase tracking-[0.35em] ${
+            group.isActive
+              ? "border-emerald-400/40 bg-emerald-500/15 text-emerald-300"
+              : "border-slate-700/60 bg-slate-900/70 text-slate-400"
+          }`}
+        >
+          {group.isActive ? "Active" : "Inactive"}
+        </span>
+        <div className="flex items-center gap-2">
           <Button
             variant="ghost"
             size="sm"
@@ -1184,25 +1257,33 @@ function GroupCard({
           >
             {deleting ? "Removing…" : "Delete"}
           </Button>
+          <Button
+            variant="secondary"
+            size="sm"
+            className="text-xs"
+            disabled={toggling}
+            onClick={() => {
+              void onToggleGroup(group, scope, !group.isActive);
+            }}
+          >
+            {toggling ? "Working…" : group.isActive ? "Deactivate" : "Activate"}
+          </Button>
         </div>
       </div>
       <div className="mt-3 space-y-3">
         {schedules.length === 0 ? (
           <p className="rounded-xl border border-slate-700/40 bg-slate-900/70 p-3 text-xs text-slate-400">
-            This group has no schedules assigned.
+            This schedule group has no events assigned.
           </p>
         ) : (
           schedules.map((schedule) => {
-            const isActive = schedule.id === activeScheduleId;
-            const key = `${group.id}:${schedule.id}`;
-            const isActivating = activatingKey === key;
             return (
               <div
                 key={schedule.id}
                 className={`rounded-xl border px-3 py-3 text-xs transition ${
-                  isActive
-                    ? "border-brand-blue/70 bg-brand-blue/10"
-                    : "border-slate-700/40 bg-slate-900/60 hover:border-brand-blue/40"
+                  schedule.enabled
+                    ? "border-brand-blue/60 bg-brand-blue/10"
+                    : "border-slate-700/40 bg-slate-900/60"
                 }`}
               >
                 <div className="flex flex-wrap items-center justify-between gap-2">
@@ -1214,25 +1295,15 @@ function GroupCard({
                       {formatTimestamp(schedule.window.start)} → {formatTimestamp(schedule.window.end)}
                     </p>
                   </div>
-                  <div className="flex items-center gap-2">
-                    {isActive ? (
-                      <span className="rounded-full border border-brand-blue/40 bg-brand-blue/20 px-3 py-1 text-[11px] uppercase tracking-[0.35em] text-brand-blue">
-                        Active
-                      </span>
-                    ) : (
-                      <Button
-                        variant="secondary"
-                        size="sm"
-                        className="text-xs"
-                        disabled={isActivating}
-                        onClick={() => {
-                          void onActivateSchedule(group, scope, schedule.id);
-                        }}
-                      >
-                        {isActivating ? "Setting…" : "Set active"}
-                      </Button>
-                    )}
-                  </div>
+                  <span
+                    className={`rounded-full border px-3 py-1 text-[11px] uppercase tracking-[0.35em] ${
+                      schedule.enabled
+                        ? "border-emerald-400/40 bg-emerald-500/20 text-emerald-200"
+                        : "border-slate-700/60 bg-slate-900/70 text-slate-400"
+                    }`}
+                  >
+                    {schedule.enabled ? "Enabled" : "Disabled"}
+                  </span>
                 </div>
                 <div className="mt-2 grid gap-2 text-[11px] text-slate-400 md:grid-cols-2">
                   <p>
@@ -1280,24 +1351,19 @@ function GroupEditorDialog({
 }: GroupEditorDialogProps) {
   const initialValues = useMemo<GroupFormValues>(() => {
     if (state.mode === "edit" && state.group) {
-      const scheduleIds = state.group.schedules.map((schedule) => schedule.id);
-      const activeId =
-        state.group.activeScheduleId && scheduleIds.includes(state.group.activeScheduleId)
-          ? state.group.activeScheduleId
-          : scheduleIds[0];
       return {
         name: state.group.name,
         description: state.group.description ?? "",
-        scheduleIds,
-        activeScheduleId: activeId
+        scheduleIds: state.group.schedules.map((schedule) => schedule.id),
+        isActive: state.group.isActive
       };
     }
-    const firstId = availableSchedules[0]?.id;
+    const firstScheduleId = availableSchedules[0]?.id;
     return {
       name: "",
       description: "",
-      scheduleIds: firstId ? [firstId] : [],
-      activeScheduleId: firstId
+      scheduleIds: firstScheduleId ? [firstScheduleId] : [],
+      isActive: false
     };
   }, [state, availableSchedules]);
 
@@ -1312,31 +1378,17 @@ function GroupEditorDialog({
       const exists = prev.scheduleIds.includes(scheduleId);
       if (exists) {
         const nextIds = prev.scheduleIds.filter((id) => id !== scheduleId);
-        const nextActive = prev.activeScheduleId === scheduleId ? nextIds[0] ?? undefined : prev.activeScheduleId;
         return {
           ...prev,
           scheduleIds: nextIds,
-          activeScheduleId: nextActive
+          isActive: nextIds.length === 0 ? false : prev.isActive
         };
       }
-      const nextIds = [...prev.scheduleIds, scheduleId];
       return {
         ...prev,
-        scheduleIds: nextIds,
-        activeScheduleId: prev.activeScheduleId ?? scheduleId
+        scheduleIds: [...prev.scheduleIds, scheduleId]
       };
     });
-  };
-
-  const setActiveSchedule = (scheduleId: string) => {
-    setForm((prev) =>
-      prev.scheduleIds.includes(scheduleId)
-        ? {
-            ...prev,
-            activeScheduleId: scheduleId
-          }
-        : prev
-    );
   };
 
   const handleSubmit = (event: React.FormEvent<HTMLFormElement>) => {
@@ -1344,7 +1396,9 @@ function GroupEditorDialog({
     void onSubmit(form);
   };
 
-  const scopeLabel = state.scope === "owner" ? `${ownerName} group` : "Global group";
+  const scopeLabel =
+    state.scope === "owner" ? `${ownerName} schedule group` : "Global schedule group";
+  const canActivate = form.scheduleIds.length > 0;
 
   return (
     <div className="absolute inset-0 z-[1450] flex items-center justify-center bg-slate-950/90 px-4">
@@ -1352,7 +1406,7 @@ function GroupEditorDialog({
         <header className="mb-4 flex items-center justify-between">
           <div>
             <p className="text-xs uppercase tracking-[0.4em] text-slate-500">
-              {state.mode === "create" ? "Create group" : "Edit group"}
+              {state.mode === "create" ? "Create schedule group" : "Edit schedule group"}
             </p>
             <h4 className="text-lg font-semibold text-slate-100">{scopeLabel}</h4>
           </div>
@@ -1362,13 +1416,13 @@ function GroupEditorDialog({
         </header>
         {availableSchedules.length === 0 ? (
           <div className="rounded-2xl border border-slate-700/40 bg-slate-900/50 p-4 text-sm text-slate-400">
-            No schedules available to assign. Create a schedule first.
+            No events available to assign. Create an event first.
           </div>
         ) : (
           <form className="space-y-4" onSubmit={handleSubmit}>
             <div className="grid gap-4 md:grid-cols-2">
               <label className="text-xs uppercase tracking-[0.3em] text-slate-500">
-                Group name
+                Schedule group name
                 <input
                   className="mt-2 w-full rounded-lg border border-slate-700/60 bg-slate-900/70 px-3 py-2 text-sm text-slate-100 focus:border-brand-blue focus:outline-none focus:ring-1 focus:ring-brand-blue"
                   value={form.name}
@@ -1396,12 +1450,31 @@ function GroupEditorDialog({
                 />
               </label>
             </div>
+            <div className="flex items-center justify-between rounded-xl border border-slate-700/40 bg-slate-900/70 px-4 py-3 text-xs text-slate-300">
+              <label className="flex items-center gap-2">
+                <input
+                  type="checkbox"
+                  checked={form.isActive}
+                  disabled={!canActivate}
+                  onChange={(event) =>
+                    setForm((prev) => ({
+                      ...prev,
+                      isActive: event.target.checked
+                    }))
+                  }
+                  className="h-4 w-4 rounded border-slate-600 bg-slate-900 text-brand-blue focus:ring-brand-blue disabled:cursor-not-allowed disabled:border-slate-700"
+                />
+                <span>
+                  Activate schedule group
+                  {!canActivate ? " (add an event first)" : ""}
+                </span>
+              </label>
+            </div>
             <div>
-              <p className="text-xs uppercase tracking-[0.3em] text-slate-500">Schedules</p>
+              <p className="text-xs uppercase tracking-[0.3em] text-slate-500">Events</p>
               <ul className="mt-3 space-y-2">
                 {availableSchedules.map((schedule) => {
                   const selected = form.scheduleIds.includes(schedule.id);
-                  const isActive = form.activeScheduleId === schedule.id;
                   return (
                     <li
                       key={schedule.id}
@@ -1421,20 +1494,6 @@ function GroupEditorDialog({
                           />
                           <span className="text-sm text-slate-100">{schedule.label}</span>
                         </label>
-                        <div className="flex items-center gap-2">
-                          {selected ? (
-                            <Button
-                              type="button"
-                              variant={isActive ? "outline" : "secondary"}
-                              size="sm"
-                              className="text-xs"
-                              disabled={isActive}
-                              onClick={() => setActiveSchedule(schedule.id)}
-                            >
-                              {isActive ? "Active" : "Set active"}
-                            </Button>
-                          ) : null}
-                        </div>
                       </div>
                       <div className="mt-2 grid gap-2 text-[11px] text-slate-400 md:grid-cols-2">
                         <p>
@@ -1468,7 +1527,11 @@ function GroupEditorDialog({
                 Cancel
               </Button>
               <Button type="submit" disabled={submitting}>
-                {submitting ? "Saving…" : state.mode === "create" ? "Create group" : "Save changes"}
+                {submitting
+                  ? "Saving…"
+                  : state.mode === "create"
+                    ? "Create schedule group"
+                    : "Save changes"}
               </Button>
             </div>
           </form>
@@ -1537,7 +1600,7 @@ function EventList({
                       disabled={copyDisabled || !onCopy}
                       onClick={() => onCopy?.(schedule)}
                     >
-                      Copy
+                      Copy event
                     </Button>
                   ) : null}
                   <Button

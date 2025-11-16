@@ -51,7 +51,7 @@ export class ApiScheduleAdapter implements SchedulePort {
     const payload = {
       scope: input.scope,
       ownerKey: input.ownerKey,
-      groupId: input.groupId,
+      groupIds: input.groupIds ?? [],
       label: input.label,
       description: input.description,
       targets: mapScheduleTarget(input.targets),
@@ -100,7 +100,7 @@ export class ApiScheduleAdapter implements SchedulePort {
       ownerKey: input.ownerKey,
       description: input.description,
       scheduleIds: input.scheduleIds,
-      activeScheduleId: input.activeScheduleId
+      isActive: input.isActive ?? false
     });
     return mapScheduleGroupEntry(apiGroup);
   }
@@ -111,7 +111,7 @@ export class ApiScheduleAdapter implements SchedulePort {
       name: rest.name,
       description: rest.description,
       scheduleIds: rest.scheduleIds,
-      activeScheduleId: rest.activeScheduleId
+      isActive: rest.isActive
     });
     return mapScheduleGroupEntry(apiGroup);
   }
@@ -120,8 +120,8 @@ export class ApiScheduleAdapter implements SchedulePort {
     await this.client.deleteScheduleGroup(groupId);
   }
 
-  async activateGroup(groupId: string, scheduleId: string): Promise<ScheduleGroup> {
-    const apiGroup = await this.client.activateScheduleGroup(groupId, { scheduleId });
+  async toggleGroupActivation(groupId: string, active: boolean): Promise<ScheduleGroup> {
+    const apiGroup = await this.client.activateScheduleGroup(groupId, { active });
     return mapScheduleGroupEntry(apiGroup);
   }
 }

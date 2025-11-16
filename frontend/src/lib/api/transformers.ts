@@ -170,7 +170,7 @@ export function mapSchedule(schedule: ApiDeviceSchedule): DeviceSchedule {
     id: schedule.id,
     scope: schedule.scope,
     ownerKey: schedule.ownerKey ?? undefined,
-    groupId: schedule.groupId ?? undefined,
+    groupIds: schedule.groupIds ?? [],
     label: schedule.label,
     description: schedule.description ?? undefined,
     targets: {
@@ -213,7 +213,7 @@ export function mapScheduleGroupEntry(group: ApiScheduleGroup): ScheduleGroup {
     ownerKey: group.ownerKey ?? undefined,
     name: group.name,
     description: group.description ?? undefined,
-    activeScheduleId: group.activeScheduleId ?? undefined,
+    isActive: Boolean(group.isActive),
     createdAt: group.createdAt,
     updatedAt: group.updatedAt,
     schedules: (group.schedules ?? []).map(mapSchedule),

@@ -24,5 +24,5 @@ export interface SchedulePort {
   createGroup(input: CreateScheduleGroupInput): Promise<ScheduleGroup>;
   updateGroup(input: UpdateScheduleGroupInput): Promise<ScheduleGroup>;
   deleteGroup(groupId: string): Promise<void>;
-  activateGroup(groupId: string, scheduleId: string): Promise<ScheduleGroup>;
+  toggleGroupActivation(groupId: string, active: boolean): Promise<ScheduleGroup>;
 }

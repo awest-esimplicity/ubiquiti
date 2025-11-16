@@ -191,7 +191,7 @@ export interface ApiDeviceSchedule {
   id: string;
   scope: "owner" | "global";
   ownerKey?: string | null;
-  groupId?: string | null;
+  groupIds: string[];
   label: string;
   description?: string | null;
   targets: ApiScheduleTarget;
@@ -224,7 +224,7 @@ export interface ApiOwnerScheduleResponse {
 export interface ApiScheduleCreateRequest {
   scope: "owner" | "global";
   ownerKey?: string | null;
-  groupId?: string | null;
+  groupIds?: string[];
   label: string;
   description?: string | null;
   targets: ApiScheduleTarget;
@@ -241,7 +241,7 @@ export interface ApiScheduleGroup {
   ownerKey?: string | null;
   name: string;
   description?: string | null;
-  activeScheduleId?: string | null;
+  isActive: boolean;
   createdAt: string;
   updatedAt: string;
   schedules: ApiDeviceSchedule[];
@@ -257,18 +257,19 @@ export interface ApiScheduleGroupCreateRequest {
   ownerKey?: string | null;
   description?: string | null;
   scheduleIds: string[];
-  activeScheduleId?: string | null;
+  isActive?: boolean;
 }
 
 export interface ApiScheduleGroupUpdateRequest {
   name?: string;
   description?: string | null;
   scheduleIds?: string[];
-  activeScheduleId?: string | null;
+  isActive?: boolean;
 }
 
 export interface ApiScheduleGroupActivateRequest {
-  scheduleId: string;
+  active?: boolean;
+  scheduleId?: string;
 }
 
 export interface ApiScheduleCloneRequest {

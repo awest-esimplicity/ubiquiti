@@ -94,7 +94,7 @@ export class ScheduleService {
     await this.port.deleteGroup(groupId);
   }
 
-  async activateGroup(groupId: string, scheduleId: string): Promise<ScheduleGroup> {
-    return this.port.activateGroup(groupId, scheduleId);
+  async toggleGroupActivation(groupId: string, active: boolean): Promise<ScheduleGroup> {
+    return this.port.toggleGroupActivation(groupId, active);
   }
 }
