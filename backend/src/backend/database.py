@@ -8,7 +8,7 @@ from pathlib import Path
 from threading import Lock
 
 from pydantic import BaseModel, Field
-from sqlalchemy import Engine, create_engine
+from sqlalchemy import Engine, create_engine, inspect, text
 from sqlalchemy.orm import Session, sessionmaker
 
 
@@ -56,6 +56,25 @@ def _ensure_sqlite_directory(url: str) -> None:
         db_path.parent.mkdir(parents=True, exist_ok=True)
 
 
+def _prepare_schema(engine: Engine) -> None:
+    """Ensure tables exist and apply simple migrations for legacy databases."""
+    from .db_models import Base, ScheduleGroupModel  # Local import to avoid circular deps
+
+    Base.metadata.create_all(engine)
+    inspector = inspect(engine)
+
+    if "schedules" in inspector.get_table_names():
+        columns = {column["name"] for column in inspector.get_columns("schedules")}
+        if "group_id" not in columns:
+            with engine.begin() as connection:
+                connection.execute(
+                    text("ALTER TABLE schedules ADD COLUMN group_id VARCHAR(64)")
+                )
+
+    if "schedule_groups" not in inspector.get_table_names():
+        ScheduleGroupModel.__table__.create(bind=engine, checkfirst=True)
+
+
 def get_engine() -> Engine | None:
     """Return the configured SQLAlchemy engine, if any."""
     global _engine
@@ -76,6 +95,7 @@ def get_engine() -> Engine | None:
                     echo=settings.echo,
                     future=True,
                 )
+                _prepare_schema(_engine)
     return _engine
 
 
