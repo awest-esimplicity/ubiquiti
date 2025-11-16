@@ -79,7 +79,7 @@ def _group_to_schema(
         name=record.name,
         description=record.description,
         owner_key=record.owner_key,
-        active_schedule_id=record.active_schedule_id,
+        is_active=record.is_active,
         created_at=record.created_at,
         updated_at=record.updated_at,
         schedules=schedules_list,
@@ -844,7 +844,7 @@ def create_schedule_group(
             owner_key=owner_key,
             description=payload.description,
             schedule_ids=payload.schedule_ids,
-            active_schedule_id=payload.active_schedule_id,
+            is_active=payload.is_active or False,
         )
     except ValueError as exc:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
@@ -860,6 +860,7 @@ def create_schedule_group(
             "name": group_record.name,
             "owner_key": group_record.owner_key,
             "schedule_count": len(schedules_list),
+            "is_active": group_record.is_active,
         },
     )
     return _group_to_schema((group_record, schedules_list))
@@ -882,7 +883,7 @@ def update_schedule_group(
             name=payload.name,
             description=payload.description,
             schedule_ids=payload.schedule_ids,
-            active_schedule_id=payload.active_schedule_id,
+            is_active=payload.is_active,
         )
     except ValueError as exc:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
@@ -900,6 +901,7 @@ def update_schedule_group(
             "name": group[0].name,
             "owner_key": group[0].owner_key,
             "schedule_count": len(group[1]),
+            "is_active": group[0].is_active,
         },
     )
     return _group_to_schema(group)
@@ -944,7 +946,7 @@ def activate_schedule_group(
 ) -> schemas.ScheduleGroup:
     schedule_repo = get_schedule_repository()
     try:
-        group = schedule_repo.set_group_active(group_id, payload.schedule_id)
+        group = schedule_repo.set_group_active(group_id, payload.active)
     except ValueError as exc:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
     if group is None:
@@ -958,7 +960,7 @@ def activate_schedule_group(
         actor=actor,
         reason=reason,
         metadata={
-            "active_schedule_id": payload.schedule_id,
+            "active": payload.active,
             "owner_key": group[0].owner_key,
         },
     )

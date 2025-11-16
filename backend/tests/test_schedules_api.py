@@ -155,13 +155,19 @@ def test_schedule_group_lifecycle():
             "ownerKey": owner_key,
             "description": "Selectable study windows",
             "scheduleIds": [schedule_one["id"], schedule_two["id"]],
-            "activeScheduleId": schedule_one["id"],
+            "isActive": True,
         },
     )
     assert group_create.status_code == 201
     group_payload = group_create.json()
     group_id = group_payload["id"]
-    assert group_payload["activeScheduleId"] == schedule_one["id"]
+    assert group_payload["isActive"] is True
+
+    # Both schedules should belong to the group and be enabled.
+    for schedule in (schedule_one, schedule_two):
+        detail = client.get(f"/api/schedules/{schedule['id']}").json()
+        assert group_id in detail["groupIds"]
+        assert detail["enabled"] is True
 
     groups_response = client.get(f"/api/owners/{owner_key}/schedule-groups")
     assert groups_response.status_code == 200
@@ -169,12 +175,25 @@ def test_schedule_group_lifecycle():
     owner_groups = groups_data["ownerGroups"]
     assert any(group["id"] == group_id for group in owner_groups)
 
-    activate_response = client.post(
+    deactivate_response = client.post(
         f"/api/schedule-groups/{group_id}/activate",
-        json={"scheduleId": schedule_two["id"]},
+        json={"active": False},
     )
-    assert activate_response.status_code == 200
-    assert activate_response.json()["activeScheduleId"] == schedule_two["id"]
+    assert deactivate_response.status_code == 200
+    assert deactivate_response.json()["isActive"] is False
+    for schedule in (schedule_one, schedule_two):
+        detail = client.get(f"/api/schedules/{schedule['id']}").json()
+        assert detail["enabled"] is False
+
+    reactivate_response = client.post(
+        f"/api/schedule-groups/{group_id}/activate",
+        json={"active": True},
+    )
+    assert reactivate_response.status_code == 200
+    assert reactivate_response.json()["isActive"] is True
+    for schedule in (schedule_one, schedule_two):
+        detail = client.get(f"/api/schedules/{schedule['id']}").json()
+        assert detail["enabled"] is True
 
     delete_response = client.delete(f"/api/schedule-groups/{group_id}")
     assert delete_response.status_code == 204
@@ -183,4 +202,4 @@ def test_schedule_group_lifecycle():
     assert all(group["id"] != group_id for group in groups_after_delete["ownerGroups"])
 
     schedule_after = client.get(f"/api/schedules/{schedule_one['id']}").json()
-    assert schedule_after["groupId"] is None
+    assert schedule_after["groupIds"] == []

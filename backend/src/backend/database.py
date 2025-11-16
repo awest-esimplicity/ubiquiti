@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import errno
 import os
 from functools import lru_cache
 from pathlib import Path
@@ -51,9 +52,33 @@ def is_database_configured() -> bool:
 
 
 def _ensure_sqlite_directory(url: str) -> None:
-    if url.startswith("sqlite:///"):
-        db_path = Path(url.replace("sqlite:///", "", 1))
-        db_path.parent.mkdir(parents=True, exist_ok=True)
+    if not url.startswith("sqlite"):
+        return
+    from urllib.parse import urlparse, unquote
+
+    parsed = urlparse(url)
+    if not parsed.path:
+        return
+
+    db_path = Path(unquote(parsed.path))
+    parent = db_path.parent
+    if parent.exists():
+        return
+    to_create: list[Path] = []
+    current = parent
+    while current and not current.exists():
+        to_create.append(current)
+        if current == current.parent:
+            break
+        current = current.parent
+    for path in reversed(to_create):
+        try:
+            path.mkdir(exist_ok=True)
+        except OSError as exc:
+            if exc.errno in {errno.EROFS, errno.EPERM}:
+                return
+            if not path.exists():
+                raise exc
 
 
 def _prepare_schema(engine: Engine) -> None:
