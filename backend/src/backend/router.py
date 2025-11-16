@@ -70,6 +70,22 @@ def _require_owner(owner_key: str) -> None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Owner not found.")
 
 
+def _group_to_schema(
+    record_schedule_pair: tuple[schedules.ScheduleGroupRecord, list[schemas.DeviceSchedule]]
+) -> schemas.ScheduleGroup:
+    record, schedules_list = record_schedule_pair
+    return schemas.ScheduleGroup(
+        id=record.id,
+        name=record.name,
+        description=record.description,
+        owner_key=record.owner_key,
+        active_schedule_id=record.active_schedule_id,
+        created_at=record.created_at,
+        updated_at=record.updated_at,
+        schedules=schedules_list,
+    )
+
+
 def _generate_owner_key(name: str) -> str:
     owner_repo = get_owner_repository()
     existing = {owner.key for owner in owner_repo.list_all()}
@@ -554,6 +570,36 @@ def list_schedules(
     return schemas.ScheduleListResponse(metadata=metadata, schedules=schedules)
 
 
+@router.get(
+    "/owners/{owner_key}/schedule-groups",
+    response_model=schemas.ScheduleGroupListResponse,
+    tags=["schedules"],
+)
+def list_schedule_groups(owner_key: str) -> schemas.ScheduleGroupListResponse:
+    schedule_repo = get_schedule_repository()
+    normalized = owner_key.lower()
+    if normalized == "global":
+        owner_groups: list[schemas.ScheduleGroup] = []
+        global_groups = [
+            _group_to_schema(group)
+            for group in schedule_repo.list_groups(owner_key=None)
+        ]
+    else:
+        _require_owner(normalized)
+        owner_groups = [
+            _group_to_schema(group)
+            for group in schedule_repo.list_groups(owner_key=normalized)
+        ]
+        global_groups = [
+            _group_to_schema(group)
+            for group in schedule_repo.list_groups(owner_key=None)
+        ]
+    return schemas.ScheduleGroupListResponse(
+        owner_groups=owner_groups,
+        global_groups=global_groups,
+    )
+
+
 @router.post(
     "/schedules",
     response_model=schemas.DeviceSchedule,
@@ -572,7 +618,10 @@ def create_schedule(
             )
         _require_owner(payload.owner_key)
     schedule_repo = get_schedule_repository()
-    schedule = schedule_repo.create(payload)
+    try:
+        schedule = schedule_repo.create(payload)
+    except ValueError as exc:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
     actor = _resolve_actor(request)
     reason = _resolve_reason(request)
     record_event(
@@ -616,11 +665,14 @@ def update_schedule(
     if not payload.model_dump(exclude_unset=True):
         raise HTTPException(
             status.HTTP_400_BAD_REQUEST, detail="No fields provided for update."
-        )
+    )
     if payload.owner_key:
         _require_owner(payload.owner_key)
     schedule_repo = get_schedule_repository()
-    schedule = schedule_repo.update(schedule_id, payload)
+    try:
+        schedule = schedule_repo.update(schedule_id, payload)
+    except ValueError as exc:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
     if schedule is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Schedule not found.")
     actor = _resolve_actor(request)
@@ -770,6 +822,147 @@ def copy_owner_schedules_endpoint(
         created=created,
         replaced_count=replaced,
     )
+
+
+@router.post(
+    "/schedule-groups",
+    response_model=schemas.ScheduleGroup,
+    status_code=status.HTTP_201_CREATED,
+    tags=["schedules"],
+)
+def create_schedule_group(
+    payload: schemas.ScheduleGroupCreateRequest,
+    request: Request,
+) -> schemas.ScheduleGroup:
+    schedule_repo = get_schedule_repository()
+    owner_key = payload.owner_key.lower() if payload.owner_key else None
+    if owner_key:
+        _require_owner(owner_key)
+    try:
+        group_record, schedules_list = schedule_repo.create_group(
+            payload.name,
+            owner_key=owner_key,
+            description=payload.description,
+            schedule_ids=payload.schedule_ids,
+            active_schedule_id=payload.active_schedule_id,
+        )
+    except ValueError as exc:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+    actor = _resolve_actor(request)
+    reason = _resolve_reason(request)
+    record_event(
+        action="schedule_group_created",
+        subject_type="schedule_group",
+        subject_id=group_record.id,
+        actor=actor,
+        reason=reason,
+        metadata={
+            "name": group_record.name,
+            "owner_key": group_record.owner_key,
+            "schedule_count": len(schedules_list),
+        },
+    )
+    return _group_to_schema((group_record, schedules_list))
+
+
+@router.patch(
+    "/schedule-groups/{group_id}",
+    response_model=schemas.ScheduleGroup,
+    tags=["schedules"],
+)
+def update_schedule_group(
+    group_id: str,
+    payload: schemas.ScheduleGroupUpdateRequest,
+    request: Request,
+) -> schemas.ScheduleGroup:
+    schedule_repo = get_schedule_repository()
+    try:
+        group = schedule_repo.update_group(
+            group_id,
+            name=payload.name,
+            description=payload.description,
+            schedule_ids=payload.schedule_ids,
+            active_schedule_id=payload.active_schedule_id,
+        )
+    except ValueError as exc:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+    if group is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Schedule group not found.")
+    actor = _resolve_actor(request)
+    reason = _resolve_reason(request)
+    record_event(
+        action="schedule_group_updated",
+        subject_type="schedule_group",
+        subject_id=group[0].id,
+        actor=actor,
+        reason=reason,
+        metadata={
+            "name": group[0].name,
+            "owner_key": group[0].owner_key,
+            "schedule_count": len(group[1]),
+        },
+    )
+    return _group_to_schema(group)
+
+
+@router.delete(
+    "/schedule-groups/{group_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+    tags=["schedules"],
+)
+def delete_schedule_group(group_id: str, request: Request) -> Response:
+    schedule_repo = get_schedule_repository()
+    existing = schedule_repo.get_group(group_id)
+    deleted = schedule_repo.delete_group(group_id)
+    if not deleted:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Schedule group not found.")
+    actor = _resolve_actor(request)
+    reason = _resolve_reason(request)
+    record_event(
+        action="schedule_group_deleted",
+        subject_type="schedule_group",
+        subject_id=group_id,
+        actor=actor,
+        reason=reason,
+        metadata={
+            "name": existing[0].name if existing else None,
+            "owner_key": existing[0].owner_key if existing else None,
+        },
+    )
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+@router.post(
+    "/schedule-groups/{group_id}/activate",
+    response_model=schemas.ScheduleGroup,
+    tags=["schedules"],
+)
+def activate_schedule_group(
+    group_id: str,
+    payload: schemas.ScheduleGroupActivateRequest,
+    request: Request,
+) -> schemas.ScheduleGroup:
+    schedule_repo = get_schedule_repository()
+    try:
+        group = schedule_repo.set_group_active(group_id, payload.schedule_id)
+    except ValueError as exc:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+    if group is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Schedule group not found.")
+    actor = _resolve_actor(request)
+    reason = _resolve_reason(request)
+    record_event(
+        action="schedule_group_activated",
+        subject_type="schedule_group",
+        subject_id=group_id,
+        actor=actor,
+        reason=reason,
+        metadata={
+            "active_schedule_id": payload.schedule_id,
+            "owner_key": group[0].owner_key,
+        },
+    )
+    return _group_to_schema(group)
 
 
 @router.get(

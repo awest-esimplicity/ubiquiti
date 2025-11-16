@@ -1,6 +1,8 @@
 import type {
   ApiDeviceSchedule,
   ApiOwnerSummary,
+  ApiScheduleGroup,
+  ApiScheduleGroupListResponse,
   ApiScheduleMetadata,
   ApiScheduleTarget,
   DashboardSummary,
@@ -24,7 +26,13 @@ import type {
   DeviceTrafficSample,
   DeviceTrafficSummary,
 } from "@/lib/domain/models";
-import type { DeviceSchedule, ScheduleMetadata, ScheduleTarget } from "@/lib/domain/schedules";
+import type {
+  DeviceSchedule,
+  ScheduleGroup,
+  ScheduleGroupList,
+  ScheduleMetadata,
+  ScheduleTarget,
+} from "@/lib/domain/schedules";
 
 function normaliseDeviceType(value: string | null | undefined): Device["type"] {
   const trimmed = value?.trim();
@@ -162,6 +170,7 @@ export function mapSchedule(schedule: ApiDeviceSchedule): DeviceSchedule {
     id: schedule.id,
     scope: schedule.scope,
     ownerKey: schedule.ownerKey ?? undefined,
+    groupId: schedule.groupId ?? undefined,
     label: schedule.label,
     description: schedule.description ?? undefined,
     targets: {
@@ -195,5 +204,25 @@ export function mapSchedule(schedule: ApiDeviceSchedule): DeviceSchedule {
     enabled: schedule.enabled,
     createdAt: schedule.createdAt,
     updatedAt: schedule.updatedAt,
+  };
+}
+
+export function mapScheduleGroupEntry(group: ApiScheduleGroup): ScheduleGroup {
+  return {
+    id: group.id,
+    ownerKey: group.ownerKey ?? undefined,
+    name: group.name,
+    description: group.description ?? undefined,
+    activeScheduleId: group.activeScheduleId ?? undefined,
+    createdAt: group.createdAt,
+    updatedAt: group.updatedAt,
+    schedules: (group.schedules ?? []).map(mapSchedule),
+  };
+}
+
+export function mapScheduleGroups(response: ApiScheduleGroupListResponse): ScheduleGroupList {
+  return {
+    ownerGroups: response.ownerGroups.map(mapScheduleGroupEntry),
+    globalGroups: response.globalGroups.map(mapScheduleGroupEntry),
   };
 }

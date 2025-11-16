@@ -1,10 +1,14 @@
 import type {
+  CreateScheduleGroupInput,
   CreateScheduleInput,
   DeviceSchedule,
+  OwnerScheduleSnapshot,
   ScheduleAction,
+  ScheduleGroup,
+  ScheduleGroupList,
   ScheduleRecurrence,
   ScheduleTarget,
-  OwnerScheduleSnapshot
+  UpdateScheduleGroupInput,
 } from "@/lib/domain/schedules";
 import type { SchedulePort } from "@/lib/ports/SchedulePort";
 
@@ -24,6 +28,10 @@ export class ScheduleService {
 
   async getSchedulesForOwner(ownerKey: string): Promise<OwnerScheduleSnapshot> {
     return this.port.loadOwnerSchedules(ownerKey);
+  }
+
+  async getScheduleGroups(ownerKey: string): Promise<ScheduleGroupList> {
+    return this.port.loadGroups(ownerKey);
   }
 
   async createEventForOwner(
@@ -72,5 +80,21 @@ export class ScheduleService {
     mode: "merge" | "replace"
   ): Promise<{ created: DeviceSchedule[]; replacedCount: number }> {
     return this.port.copyOwnerSchedules(sourceOwner, targetOwner, mode);
+  }
+
+  async createGroup(input: CreateScheduleGroupInput): Promise<ScheduleGroup> {
+    return this.port.createGroup(input);
+  }
+
+  async updateGroup(input: UpdateScheduleGroupInput): Promise<ScheduleGroup> {
+    return this.port.updateGroup(input);
+  }
+
+  async deleteGroup(groupId: string): Promise<void> {
+    await this.port.deleteGroup(groupId);
+  }
+
+  async activateGroup(groupId: string, scheduleId: string): Promise<ScheduleGroup> {
+    return this.port.activateGroup(groupId, scheduleId);
   }
 }

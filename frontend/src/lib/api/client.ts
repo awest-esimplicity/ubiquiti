@@ -1,5 +1,10 @@
 import type {
   ApiDeviceSchedule,
+  ApiScheduleGroup,
+  ApiScheduleGroupActivateRequest,
+  ApiScheduleGroupCreateRequest,
+  ApiScheduleGroupListResponse,
+  ApiScheduleGroupUpdateRequest,
   ApiOwnerScheduleResponse,
   ApiScheduleCloneRequest,
   ApiScheduleCloneResponse,
@@ -210,6 +215,15 @@ export class UnifiApiClient {
     return this.request<ApiOwnerScheduleResponse>(`/api/owners/${ownerKey}/schedules`, { signal });
   }
 
+  async getScheduleGroups(
+    ownerKey: string,
+    signal?: AbortSignal,
+  ): Promise<ApiScheduleGroupListResponse> {
+    return this.request<ApiScheduleGroupListResponse>(`/api/owners/${ownerKey}/schedule-groups`, {
+      signal,
+    });
+  }
+
   async createSchedule(payload: ApiScheduleCreateRequest): Promise<ApiDeviceSchedule> {
     return this.request<ApiDeviceSchedule, ApiScheduleCreateRequest>("/api/schedules", {
       method: "POST",
@@ -243,6 +257,47 @@ export class UnifiApiClient {
   ): Promise<ApiOwnerScheduleCopyResponse> {
     return this.request<ApiOwnerScheduleCopyResponse, ApiOwnerScheduleCopyRequest>(
       `/api/owners/${sourceOwner}/schedules/copy`,
+      {
+        method: "POST",
+        body: payload,
+      },
+    );
+  }
+
+  async createScheduleGroup(
+    payload: ApiScheduleGroupCreateRequest,
+  ): Promise<ApiScheduleGroup> {
+    return this.request<ApiScheduleGroup, ApiScheduleGroupCreateRequest>("/api/schedule-groups", {
+      method: "POST",
+      body: payload,
+    });
+  }
+
+  async updateScheduleGroup(
+    groupId: string,
+    payload: ApiScheduleGroupUpdateRequest,
+  ): Promise<ApiScheduleGroup> {
+    return this.request<ApiScheduleGroup, ApiScheduleGroupUpdateRequest>(
+      `/api/schedule-groups/${groupId}`,
+      {
+        method: "PATCH",
+        body: payload,
+      },
+    );
+  }
+
+  async deleteScheduleGroup(groupId: string): Promise<void> {
+    await this.request(`/api/schedule-groups/${groupId}`, {
+      method: "DELETE",
+    });
+  }
+
+  async activateScheduleGroup(
+    groupId: string,
+    payload: ApiScheduleGroupActivateRequest,
+  ): Promise<ApiScheduleGroup> {
+    return this.request<ApiScheduleGroup, ApiScheduleGroupActivateRequest>(
+      `/api/schedule-groups/${groupId}/activate`,
       {
         method: "POST",
         body: payload,

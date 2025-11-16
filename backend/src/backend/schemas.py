@@ -247,6 +247,7 @@ class DeviceSchedule(CamelModel):
     id: str
     scope: Literal["owner", "global"]
     owner_key: str | None = Field(default=None, alias="ownerKey")
+    group_id: str | None = Field(default=None, alias="groupId")
     label: str
     description: str | None = None
     targets: ScheduleTarget
@@ -273,6 +274,7 @@ class ScheduleConfig(CamelModel):
 class ScheduleCreateRequest(CamelModel):
     scope: Literal["owner", "global"]
     owner_key: str | None = Field(default=None, alias="ownerKey")
+    group_id: str | None = Field(default=None, alias="groupId")
     label: str
     description: str | None = None
     targets: ScheduleTarget
@@ -287,6 +289,7 @@ class ScheduleCreateRequest(CamelModel):
 class ScheduleUpdateRequest(CamelModel):
     scope: Literal["owner", "global"] | None = None
     owner_key: str | None = Field(default=None, alias="ownerKey")
+    group_id: str | None = Field(default=None, alias="groupId")
     label: str | None = None
     description: str | None = None
     targets: ScheduleTarget | None = None
@@ -328,6 +331,41 @@ class OwnerScheduleCopyResponse(CamelModel):
     mode: Literal["merge", "replace"]
     created: list[DeviceSchedule] = Field(default_factory=list)
     replaced_count: int = Field(default=0, alias="replacedCount")
+
+
+class ScheduleGroup(CamelModel):
+    id: str
+    name: str
+    description: str | None = None
+    owner_key: str | None = Field(default=None, alias="ownerKey")
+    active_schedule_id: str | None = Field(default=None, alias="activeScheduleId")
+    created_at: datetime = Field(alias="createdAt")
+    updated_at: datetime = Field(alias="updatedAt")
+    schedules: list[DeviceSchedule] = Field(default_factory=list)
+
+
+class ScheduleGroupCreateRequest(CamelModel):
+    name: str
+    description: str | None = None
+    owner_key: str | None = Field(default=None, alias="ownerKey")
+    schedule_ids: list[str] = Field(default_factory=list, alias="scheduleIds")
+    active_schedule_id: str | None = Field(default=None, alias="activeScheduleId")
+
+
+class ScheduleGroupUpdateRequest(CamelModel):
+    name: str | None = None
+    description: str | None = None
+    schedule_ids: list[str] | None = Field(default=None, alias="scheduleIds")
+    active_schedule_id: str | None = Field(default=None, alias="activeScheduleId")
+
+
+class ScheduleGroupListResponse(CamelModel):
+    owner_groups: list[ScheduleGroup] = Field(alias="ownerGroups", default_factory=list)
+    global_groups: list[ScheduleGroup] = Field(alias="globalGroups", default_factory=list)
+
+
+class ScheduleGroupActivateRequest(CamelModel):
+    schedule_id: str = Field(alias="scheduleId")
 
 
 __all__ = [

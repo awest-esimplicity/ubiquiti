@@ -31,6 +31,7 @@ export interface DeviceSchedule {
   id: string;
   scope: ScheduleScope;
   ownerKey?: string;            // required when scope === "owner"
+  groupId?: string;
   label: string;
   description?: string;
   targets: ScheduleTarget;
@@ -57,6 +58,7 @@ export interface ScheduleConfig {
 export interface CreateScheduleInput {
   scope: ScheduleScope;
   ownerKey?: string;
+  groupId?: string;
   label: string;
   description?: string;
   targets: ScheduleTarget;
@@ -72,4 +74,36 @@ export interface OwnerScheduleSnapshot {
   metadata: ScheduleMetadata;
   ownerSchedules: DeviceSchedule[];
   globalSchedules: DeviceSchedule[];
+}
+
+export interface ScheduleGroup {
+  id: string;
+  ownerKey?: string;
+  name: string;
+  description?: string;
+  activeScheduleId?: string;
+  createdAt: string;
+  updatedAt: string;
+  schedules: DeviceSchedule[];
+}
+
+export interface ScheduleGroupList {
+  ownerGroups: ScheduleGroup[];
+  globalGroups: ScheduleGroup[];
+}
+
+export interface CreateScheduleGroupInput {
+  name: string;
+  ownerKey?: string;
+  description?: string;
+  scheduleIds: string[];
+  activeScheduleId?: string;
+}
+
+export interface UpdateScheduleGroupInput {
+  groupId: string;
+  name?: string;
+  description?: string;
+  scheduleIds?: string[];
+  activeScheduleId?: string;
 }

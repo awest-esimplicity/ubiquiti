@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import uuid
 from copy import deepcopy
+from dataclasses import dataclass
 from datetime import datetime, timezone
 from functools import lru_cache
 from typing import Iterable, Literal, Protocol
@@ -14,7 +15,7 @@ from sqlalchemy.exc import NoResultFound
 from sqlalchemy.orm import Session
 
 from .database import get_engine, get_session_factory, is_database_configured
-from .db_models import ScheduleMetadataModel, ScheduleModel
+from .db_models import ScheduleGroupModel, ScheduleMetadataModel, ScheduleModel
 from .defaults import DEFAULT_SCHEDULE_CONFIG
 from .schemas import (
     DeviceSchedule,
@@ -39,6 +40,7 @@ def _schedule_to_model(schedule: DeviceSchedule) -> ScheduleModel:
         id=schedule.id,
         scope=schedule.scope,
         owner_key=schedule.owner_key,
+        group_id=schedule.group_id,
         label=schedule.label,
         description=schedule.description,
         targets_json=json.dumps(
@@ -85,6 +87,7 @@ def _model_to_schedule(model: ScheduleModel) -> DeviceSchedule:
         enabled=bool(model.enabled),
         created_at=datetime.fromisoformat(model.created_at),
         updated_at=datetime.fromisoformat(model.updated_at),
+        group_id=model.group_id,
     )
 
 
@@ -93,11 +96,23 @@ def _clone_for_owner(schedule: DeviceSchedule, owner_key: str) -> DeviceSchedule
     cloned.id = str(uuid.uuid4())
     cloned.scope = "owner"
     cloned.owner_key = owner_key.lower()
+    cloned.group_id = None
     cloned.enabled = True
     timestamp = _now()
     cloned.created_at = timestamp
     cloned.updated_at = timestamp
     return cloned
+
+
+@dataclass
+class ScheduleGroupRecord:
+    id: str
+    name: str
+    owner_key: str | None
+    description: str | None
+    active_schedule_id: str | None
+    created_at: datetime
+    updated_at: datetime
 
 
 def _metadata_to_model(metadata: ScheduleMetadata) -> ScheduleMetadataModel:
@@ -198,6 +213,42 @@ class ScheduleRepository(Protocol):
     ) -> tuple[list[DeviceSchedule], int]:
         ...
 
+    def list_groups(
+        self, owner_key: str | None = None
+    ) -> list[tuple[ScheduleGroupRecord, list[DeviceSchedule]]]:
+        ...
+
+    def get_group(self, group_id: str) -> tuple[ScheduleGroupRecord, list[DeviceSchedule]] | None:
+        ...
+
+    def create_group(
+        self,
+        name: str,
+        *,
+        owner_key: str | None,
+        description: str | None,
+        schedule_ids: list[str],
+        active_schedule_id: str | None,
+    ) -> tuple[ScheduleGroupRecord, list[DeviceSchedule]]:
+        ...
+
+    def update_group(
+        self,
+        group_id: str,
+        *,
+        name: str | None = None,
+        description: str | None = None,
+        schedule_ids: list[str] | None = None,
+        active_schedule_id: str | None = None,
+    ) -> tuple[ScheduleGroupRecord, list[DeviceSchedule]] | None:
+        ...
+
+    def delete_group(self, group_id: str) -> bool:
+        ...
+
+    def set_group_active(self, group_id: str, schedule_id: str) -> tuple[ScheduleGroupRecord, list[DeviceSchedule]] | None:
+        ...
+
 
 # In-memory repository --------------------------------------------------------
 
@@ -205,9 +256,56 @@ class ScheduleRepository(Protocol):
 class InMemoryScheduleRepository(ScheduleRepository):
     def __init__(self) -> None:
         self._config = ScheduleConfig.model_validate(DEFAULT_SCHEDULE_CONFIG)
+        self._groups: dict[str, ScheduleGroupRecord] = {}
 
     def _clone_schedule(self, schedule: DeviceSchedule) -> DeviceSchedule:
         return DeviceSchedule.model_validate(schedule.model_dump(by_alias=True))
+
+    def _find_schedule_index(self, schedule_id: str) -> int | None:
+        for index, schedule in enumerate(self._config.schedules):
+            if schedule.id == schedule_id:
+                return index
+        return None
+
+    def _find_schedule(self, schedule_id: str) -> DeviceSchedule | None:
+        index = self._find_schedule_index(schedule_id)
+        if index is None:
+            return None
+        return self._config.schedules[index]
+
+    def _set_schedule(self, schedule: DeviceSchedule) -> None:
+        index = self._find_schedule_index(schedule.id)
+        if index is None:
+            self._config.schedules.append(schedule)
+        else:
+            self._config.schedules[index] = schedule
+
+    def _group_schedules(self, group_id: str) -> list[DeviceSchedule]:
+        return [
+            schedule
+            for schedule in self._config.schedules
+            if schedule.group_id == group_id
+        ]
+
+    def _set_group_active(self, group: ScheduleGroupRecord, schedule_id: str | None) -> None:
+        for schedule in self._config.schedules:
+            if schedule.group_id != group.id:
+                continue
+            schedule.enabled = schedule.id == schedule_id
+            schedule.updated_at = _now()
+        group.active_schedule_id = schedule_id
+        group.updated_at = _now()
+
+    def _remove_schedule_from_group(self, schedule: DeviceSchedule) -> None:
+        if not schedule.group_id:
+            return
+        group = self._groups.get(schedule.group_id)
+        schedule.group_id = None
+        schedule.enabled = schedule.enabled  # no change
+        schedule.updated_at = _now()
+        if group:
+            if group.active_schedule_id == schedule.id:
+                self._set_group_active(group, None)
 
     def list(
         self,
@@ -238,6 +336,7 @@ class InMemoryScheduleRepository(ScheduleRepository):
             id=str(uuid.uuid4()),
             scope=payload.scope,
             owner_key=payload.owner_key,
+            group_id=payload.group_id,
             label=payload.label,
             description=payload.description,
             targets=payload.targets,
@@ -251,6 +350,21 @@ class InMemoryScheduleRepository(ScheduleRepository):
             updated_at=_now(),
         )
         self._config.schedules.append(schedule)
+        if schedule.group_id:
+            group = self._groups.get(schedule.group_id)
+            if group is None:
+                raise ValueError(f"Schedule group {schedule.group_id} not found.")
+            if group.owner_key and schedule.owner_key and group.owner_key != schedule.owner_key:
+                raise ValueError("Schedule owner does not match group owner.")
+            if group.active_schedule_id is None:
+                self._set_group_active(group, schedule.id)
+                schedule.enabled = True
+            else:
+                schedule.enabled = group.active_schedule_id == schedule.id
+                if schedule.enabled:
+                    self._set_group_active(group, schedule.id)
+                else:
+                    schedule.updated_at = _now()
         self._config.metadata.generated_at = _now()
         return self._clone_schedule(schedule)
 
@@ -261,6 +375,38 @@ class InMemoryScheduleRepository(ScheduleRepository):
             if schedule.id == schedule_id:
                 updated = _apply_update(self._clone_schedule(schedule), payload)
                 updated.updated_at = _now()
+                old_group = schedule.group_id
+                new_group = updated.group_id
+                if old_group != new_group:
+                    # detach from old group
+                    if old_group:
+                        existing_group = self._groups.get(old_group)
+                        if existing_group:
+                            if existing_group.active_schedule_id == schedule.id:
+                                self._set_group_active(existing_group, None)
+                    schedule.group_id = None
+                    if new_group:
+                        group = self._groups.get(new_group)
+                        if group is None:
+                            raise ValueError(f"Schedule group {new_group} not found.")
+                        if group.owner_key and updated.owner_key and group.owner_key != updated.owner_key:
+                            raise ValueError("Schedule owner does not match group owner.")
+                        # attach to new group
+                        if group.active_schedule_id is None:
+                            self._set_group_active(group, updated.id)
+                            updated.enabled = True
+                        else:
+                            updated.enabled = group.active_schedule_id == updated.id
+                            if updated.enabled:
+                                self._set_group_active(group, updated.id)
+                            else:
+                                updated.updated_at = _now()
+                else:
+                    # still in same group; ensure enabled consistency if group exists
+                    if updated.group_id:
+                        group = self._groups.get(updated.group_id)
+                        if group:
+                            updated.enabled = group.active_schedule_id == updated.id
                 self._config.schedules[index] = updated
                 self._config.metadata.generated_at = _now()
                 return self._clone_schedule(updated)
@@ -269,7 +415,17 @@ class InMemoryScheduleRepository(ScheduleRepository):
     def delete(self, schedule_id: str) -> bool:
         for index, schedule in enumerate(self._config.schedules):
             if schedule.id == schedule_id:
+                group_id = schedule.group_id
                 self._config.schedules.pop(index)
+                if group_id:
+                    group = self._groups.get(group_id)
+                    if group:
+                        remaining = self._group_schedules(group_id)
+                        if group.active_schedule_id == schedule_id:
+                            new_active = remaining[0].id if remaining else None
+                            self._set_group_active(group, new_active)
+                        if not remaining:
+                            group.updated_at = _now()
                 self._config.metadata.generated_at = _now()
                 return True
         return False
@@ -277,6 +433,18 @@ class InMemoryScheduleRepository(ScheduleRepository):
     def set_enabled(self, schedule_id: str, enabled: bool) -> DeviceSchedule | None:
         for schedule in self._config.schedules:
             if schedule.id == schedule_id:
+                if schedule.group_id:
+                    group = self._groups.get(schedule.group_id)
+                    if group:
+                        if enabled:
+                            self._set_group_active(group, schedule.id)
+                        else:
+                            if group.active_schedule_id == schedule.id:
+                                self._set_group_active(group, None)
+                            schedule.enabled = False
+                            schedule.updated_at = _now()
+                        self._config.metadata.generated_at = _now()
+                        return self._clone_schedule(self._find_schedule(schedule_id) or schedule)
                 schedule.enabled = enabled
                 schedule.updated_at = _now()
                 self._config.metadata.generated_at = _now()
@@ -368,6 +536,163 @@ class InMemoryScheduleRepository(ScheduleRepository):
 
         return created, replaced_count
 
+    def list_groups(
+        self, owner_key: str | None = None
+    ) -> list[tuple[ScheduleGroupRecord, list[DeviceSchedule]]]:
+        groups = []
+        for group in self._groups.values():
+            if owner_key is None:
+                groups.append(group)
+            elif group.owner_key == owner_key:
+                groups.append(group)
+        result: list[tuple[ScheduleGroupRecord, list[DeviceSchedule]]] = []
+        for group in groups:
+            schedules = [
+                self._clone_schedule(schedule)
+                for schedule in self._group_schedules(group.id)
+            ]
+            result.append((group, schedules))
+        return result
+
+    def get_group(self, group_id: str) -> tuple[ScheduleGroupRecord, list[DeviceSchedule]] | None:
+        group = self._groups.get(group_id)
+        if group is None:
+            return None
+        schedules = [
+            self._clone_schedule(schedule)
+            for schedule in self._group_schedules(group.id)
+        ]
+        return group, schedules
+
+    def create_group(
+        self,
+        name: str,
+        *,
+        owner_key: str | None,
+        description: str | None,
+        schedule_ids: list[str],
+        active_schedule_id: str | None,
+    ) -> tuple[ScheduleGroupRecord, list[DeviceSchedule]]:
+        group_id = str(uuid.uuid4())
+        now = _now()
+        record = ScheduleGroupRecord(
+            id=group_id,
+            name=name.strip(),
+            owner_key=owner_key.lower() if owner_key else None,
+            description=description.strip() if description else None,
+            active_schedule_id=None,
+            created_at=now,
+            updated_at=now,
+        )
+        self._groups[group_id] = record
+
+        schedules: list[DeviceSchedule] = []
+        for schedule_id in schedule_ids:
+            schedule = self._find_schedule(schedule_id)
+            if schedule is None:
+                raise ValueError(f"Schedule {schedule_id} not found.")
+            if record.owner_key and schedule.owner_key and schedule.owner_key != record.owner_key:
+                raise ValueError("Schedule owner does not match group owner.")
+            self._remove_schedule_from_group(schedule)
+            schedule.group_id = group_id
+            schedule.updated_at = _now()
+            schedules.append(schedule)
+
+        if active_schedule_id and active_schedule_id not in schedule_ids:
+            raise ValueError("activeScheduleId must be included in scheduleIds.")
+
+        selected_active = active_schedule_id or (schedule_ids[0] if schedule_ids else None)
+        self._set_group_active(record, selected_active)
+        self._config.metadata.generated_at = _now()
+        return record, [self._clone_schedule(s) for s in schedules]
+
+    def update_group(
+        self,
+        group_id: str,
+        *,
+        name: str | None = None,
+        description: str | None = None,
+        schedule_ids: list[str] | None = None,
+        active_schedule_id: str | None = None,
+    ) -> tuple[ScheduleGroupRecord, list[DeviceSchedule]] | None:
+        group = self._groups.get(group_id)
+        if group is None:
+            return None
+        if name is not None:
+            group.name = name.strip()
+        if description is not None:
+            group.description = description.strip() or None
+
+        if schedule_ids is not None:
+            current_ids = {schedule.id for schedule in self._group_schedules(group_id)}
+            desired_ids = set(schedule_ids)
+
+            # remove schedules not in desired set
+            for schedule_id in current_ids - desired_ids:
+                schedule = self._find_schedule(schedule_id)
+                if schedule:
+                    self._remove_schedule_from_group(schedule)
+
+            # add new schedules
+            for schedule_id in desired_ids:
+                schedule = self._find_schedule(schedule_id)
+                if schedule is None:
+                    raise ValueError(f"Schedule {schedule_id} not found.")
+                if schedule.group_id != group_id:
+                    if group.owner_key and schedule.owner_key and schedule.owner_key != group.owner_key:
+                        raise ValueError("Schedule owner does not match group owner.")
+                    self._remove_schedule_from_group(schedule)
+                    schedule.group_id = group_id
+                    schedule.updated_at = _now()
+
+            if active_schedule_id and active_schedule_id not in desired_ids:
+                raise ValueError("activeScheduleId must be included in scheduleIds.")
+            group.updated_at = _now()
+
+        if active_schedule_id is not None:
+            if active_schedule_id:
+                schedule = self._find_schedule(active_schedule_id)
+                if schedule is None or schedule.group_id != group_id:
+                    raise ValueError("Active schedule must belong to the group.")
+                self._set_group_active(group, active_schedule_id)
+            else:
+                self._set_group_active(group, None)
+
+        self._config.metadata.generated_at = _now()
+        schedules = [
+            self._clone_schedule(schedule)
+            for schedule in self._group_schedules(group_id)
+        ]
+        return group, schedules
+
+    def delete_group(self, group_id: str) -> bool:
+        group = self._groups.pop(group_id, None)
+        if group is None:
+            return False
+        for schedule in self._config.schedules:
+            if schedule.group_id == group_id:
+                schedule.group_id = None
+                schedule.updated_at = _now()
+        self._config.metadata.generated_at = _now()
+        return True
+
+    def set_group_active(
+        self, group_id: str, schedule_id: str
+    ) -> tuple[ScheduleGroupRecord, list[DeviceSchedule]] | None:
+        group = self._groups.get(group_id)
+        if group is None:
+            return None
+        schedule = self._find_schedule(schedule_id)
+        if schedule is None or schedule.group_id != group_id:
+            raise ValueError("Schedule must belong to the group.")
+        self._set_group_active(group, schedule_id)
+        self._config.metadata.generated_at = _now()
+        schedules = [
+            self._clone_schedule(schedule)
+            for schedule in self._group_schedules(group_id)
+        ]
+        return group, schedules
+
 
 # SQLAlchemy repository -------------------------------------------------------
 
@@ -392,6 +717,52 @@ class SqlScheduleRepository(ScheduleRepository):
         metadata = self._get_metadata(session)
         metadata.generated_at = _now()
         session.merge(_metadata_to_model(metadata))
+
+    def _model_to_group_record(self, model: ScheduleGroupModel) -> ScheduleGroupRecord:
+        return ScheduleGroupRecord(
+            id=model.id,
+            name=model.name,
+            owner_key=model.owner_key,
+            description=model.description,
+            active_schedule_id=model.active_schedule_id,
+            created_at=datetime.fromisoformat(model.created_at),
+            updated_at=datetime.fromisoformat(model.updated_at),
+        )
+
+    def _group_schedules_sql(self, session: Session, group_id: str) -> list[ScheduleModel]:
+        return (
+            session.execute(
+                select(ScheduleModel).where(ScheduleModel.group_id == group_id)
+            )
+            .scalars()
+            .all()
+        )
+
+    def _set_group_active_sql(
+        self,
+        session: Session,
+        group_model: ScheduleGroupModel,
+        schedule_id: str | None,
+    ) -> None:
+        now = _now().isoformat()
+        for row in self._group_schedules_sql(session, group_model.id):
+            row.enabled = row.id == schedule_id
+            row.updated_at = now
+        group_model.active_schedule_id = schedule_id
+        group_model.updated_at = now
+
+    def _remove_schedule_from_group_sql(
+        self,
+        session: Session,
+        schedule_model: ScheduleModel,
+    ) -> None:
+        if not schedule_model.group_id:
+            return
+        group_model = session.get(ScheduleGroupModel, schedule_model.group_id)
+        schedule_model.group_id = None
+        schedule_model.updated_at = _now().isoformat()
+        if group_model and group_model.active_schedule_id == schedule_model.id:
+            self._set_group_active_sql(session, group_model, None)
 
     def list(
         self,
@@ -421,6 +792,7 @@ class SqlScheduleRepository(ScheduleRepository):
             id=str(uuid.uuid4()),
             scope=payload.scope,
             owner_key=payload.owner_key,
+            group_id=payload.group_id,
             label=payload.label,
             description=payload.description,
             targets=payload.targets,
@@ -436,6 +808,18 @@ class SqlScheduleRepository(ScheduleRepository):
         model = _schedule_to_model(schedule)
         with self._session() as session:
             session.merge(model)
+            if schedule.group_id:
+                group_model = session.get(ScheduleGroupModel, schedule.group_id)
+                if group_model is None:
+                    raise ValueError(f"Schedule group {schedule.group_id} not found.")
+                if group_model.owner_key and schedule.owner_key and group_model.owner_key != schedule.owner_key:
+                    raise ValueError("Schedule owner does not match group owner.")
+                persisted = session.get(ScheduleModel, schedule.id)
+                assert persisted is not None
+                if group_model.active_schedule_id is None:
+                    self._set_group_active_sql(session, group_model, persisted.id)
+                else:
+                    self._set_group_active_sql(session, group_model, group_model.active_schedule_id)
             self._set_generated_at(session)
             session.commit()
         return schedule
@@ -448,19 +832,79 @@ class SqlScheduleRepository(ScheduleRepository):
             if existing is None:
                 return None
             schedule = _model_to_schedule(existing)
-            schedule = _apply_update(schedule, payload)
-            schedule.updated_at = _now()
-            session.merge(_schedule_to_model(schedule))
+            updated = _apply_update(schedule, payload)
+            updated.updated_at = _now()
+
+            old_group = existing.group_id
+            new_group = updated.group_id
+
+            if old_group != new_group:
+                if old_group:
+                    self._remove_schedule_from_group_sql(session, existing)
+                if new_group:
+                    group_model = session.get(ScheduleGroupModel, new_group)
+                    if group_model is None:
+                        raise ValueError(f"Schedule group {new_group} not found.")
+                    if group_model.owner_key and updated.owner_key and group_model.owner_key != updated.owner_key:
+                        raise ValueError("Schedule owner does not match group owner.")
+                    existing.group_id = new_group
+            existing.scope = updated.scope
+            existing.owner_key = updated.owner_key
+            existing.label = updated.label
+            existing.description = updated.description
+            existing.targets_json = json.dumps(
+                updated.targets.model_dump(mode="json", by_alias=True)
+            )
+            existing.action = updated.action
+            existing.end_action = updated.end_action
+            existing.window_start = updated.window.start.isoformat()
+            existing.window_end = updated.window.end.isoformat()
+            existing.recurrence_json = json.dumps(
+                updated.recurrence.model_dump(mode="json", by_alias=True)
+            )
+            existing.exceptions_json = json.dumps(
+                [exception.model_dump(mode="json", by_alias=True) for exception in updated.exceptions]
+            )
+            existing.updated_at = updated.updated_at.isoformat()
+
+            if existing.group_id:
+                group_model = session.get(ScheduleGroupModel, existing.group_id)
+                if group_model:
+                    if group_model.active_schedule_id == existing.id or group_model.active_schedule_id is None:
+                        self._set_group_active_sql(
+                            session,
+                            group_model,
+                            group_model.active_schedule_id or existing.id,
+                        )
+                    else:
+                        self._set_group_active_sql(session, group_model, group_model.active_schedule_id)
+            else:
+                existing.enabled = updated.enabled
             self._set_generated_at(session)
             session.commit()
-            return schedule
+            refreshed = session.get(ScheduleModel, schedule_id)
+            assert refreshed is not None
+            return _model_to_schedule(refreshed)
 
     def delete(self, schedule_id: str) -> bool:
         with self._session() as session:
             existing = session.get(ScheduleModel, schedule_id)
             if existing is None:
                 return False
+            group_id = existing.group_id
             session.delete(existing)
+            session.flush()
+            if group_id:
+                group_model = session.get(ScheduleGroupModel, group_id)
+                if group_model:
+                    remaining = self._group_schedules_sql(session, group_id)
+                    new_active = (
+                        remaining[0].id if remaining else None
+                    )
+                    if group_model.active_schedule_id == schedule_id:
+                        self._set_group_active_sql(session, group_model, new_active)
+                    else:
+                        group_model.updated_at = _now().isoformat()
             self._set_generated_at(session)
             session.commit()
             return True
@@ -470,13 +914,28 @@ class SqlScheduleRepository(ScheduleRepository):
             existing = session.get(ScheduleModel, schedule_id)
             if existing is None:
                 return None
-            schedule = _model_to_schedule(existing)
-            schedule.enabled = enabled
-            schedule.updated_at = _now()
-            session.merge(_schedule_to_model(schedule))
+            if existing.group_id:
+                group_model = session.get(ScheduleGroupModel, existing.group_id)
+                if group_model:
+                    if enabled:
+                        self._set_group_active_sql(session, group_model, existing.id)
+                    else:
+                        if group_model.active_schedule_id == existing.id:
+                            self._set_group_active_sql(session, group_model, None)
+                        else:
+                            existing.enabled = False
+                            existing.updated_at = _now().isoformat()
+                else:
+                    existing.enabled = enabled
+                    existing.updated_at = _now().isoformat()
+            else:
+                existing.enabled = enabled
+                existing.updated_at = _now().isoformat()
             self._set_generated_at(session)
             session.commit()
-            return schedule
+            refreshed = session.get(ScheduleModel, schedule_id)
+            assert refreshed is not None
+            return _model_to_schedule(refreshed)
 
     def list_for_owner(
         self, owner_key: str
@@ -585,6 +1044,186 @@ class SqlScheduleRepository(ScheduleRepository):
             self._set_generated_at(session)
             session.commit()
             return created, replaced_count
+
+    def list_groups(
+        self, owner_key: str | None = None
+    ) -> list[tuple[ScheduleGroupRecord, list[DeviceSchedule]]]:
+        with self._session() as session:
+            stmt = select(ScheduleGroupModel)
+            if owner_key is None:
+                stmt = stmt.where(ScheduleGroupModel.owner_key.is_(None))
+            else:
+                stmt = stmt.where(ScheduleGroupModel.owner_key == owner_key)
+            rows = session.execute(stmt).scalars().all()
+            result: list[tuple[ScheduleGroupRecord, list[DeviceSchedule]]] = []
+            for row in rows:
+                group = self._model_to_group_record(row)
+                schedules = [
+                    _model_to_schedule(schedule)
+                    for schedule in self._group_schedules_sql(session, row.id)
+                ]
+                result.append((group, schedules))
+            return result
+
+    def get_group(self, group_id: str) -> tuple[ScheduleGroupRecord, list[DeviceSchedule]] | None:
+        with self._session() as session:
+            model = session.get(ScheduleGroupModel, group_id)
+            if model is None:
+                return None
+            group = self._model_to_group_record(model)
+            schedules = [
+                _model_to_schedule(schedule)
+                for schedule in self._group_schedules_sql(session, group_id)
+            ]
+            return group, schedules
+
+    def create_group(
+        self,
+        name: str,
+        *,
+        owner_key: str | None,
+        description: str | None,
+        schedule_ids: list[str],
+        active_schedule_id: str | None,
+    ) -> tuple[ScheduleGroupRecord, list[DeviceSchedule]]:
+        with self._session() as session:
+            now = _now().isoformat()
+            group_id = str(uuid.uuid4())
+            record = ScheduleGroupModel(
+                id=group_id,
+                owner_key=owner_key.lower() if owner_key else None,
+                name=name.strip(),
+                description=description.strip() if description else None,
+                active_schedule_id=None,
+                created_at=now,
+                updated_at=now,
+            )
+            session.add(record)
+            session.flush()
+
+            for schedule_id in schedule_ids:
+                schedule = session.get(ScheduleModel, schedule_id)
+                if schedule is None:
+                    raise ValueError(f"Schedule {schedule_id} not found.")
+                if record.owner_key and schedule.owner_key and schedule.owner_key != record.owner_key:
+                    raise ValueError("Schedule owner does not match group owner.")
+                self._remove_schedule_from_group_sql(session, schedule)
+                schedule.group_id = record.id
+
+            if active_schedule_id and active_schedule_id not in schedule_ids:
+                raise ValueError("activeScheduleId must be included in scheduleIds.")
+
+            selected_active = active_schedule_id or (schedule_ids[0] if schedule_ids else None)
+            self._set_group_active_sql(session, record, selected_active)
+            self._set_generated_at(session)
+            session.commit()
+
+            refreshed = session.get(ScheduleGroupModel, group_id)
+            assert refreshed is not None
+            group = self._model_to_group_record(refreshed)
+            schedules = [
+                _model_to_schedule(schedule)
+                for schedule in self._group_schedules_sql(session, group_id)
+            ]
+            return group, schedules
+
+    def update_group(
+        self,
+        group_id: str,
+        *,
+        name: str | None = None,
+        description: str | None = None,
+        schedule_ids: list[str] | None = None,
+        active_schedule_id: str | None = None,
+    ) -> tuple[ScheduleGroupRecord, list[DeviceSchedule]] | None:
+        with self._session() as session:
+            group_model = session.get(ScheduleGroupModel, group_id)
+            if group_model is None:
+                return None
+            if name is not None:
+                group_model.name = name.strip()
+            if description is not None:
+                group_model.description = description.strip() or None
+
+            if schedule_ids is not None:
+                current_ids = {row.id for row in self._group_schedules_sql(session, group_id)}
+                desired_ids = set(schedule_ids)
+
+                for schedule_id in current_ids - desired_ids:
+                    schedule = session.get(ScheduleModel, schedule_id)
+                    if schedule:
+                        self._remove_schedule_from_group_sql(session, schedule)
+
+                for schedule_id in desired_ids:
+                    schedule = session.get(ScheduleModel, schedule_id)
+                    if schedule is None:
+                        raise ValueError(f"Schedule {schedule_id} not found.")
+                    if schedule.group_id != group_id:
+                        if group_model.owner_key and schedule.owner_key and schedule.owner_key != group_model.owner_key:
+                            raise ValueError("Schedule owner does not match group owner.")
+                        self._remove_schedule_from_group_sql(session, schedule)
+                        schedule.group_id = group_id
+
+                if active_schedule_id and active_schedule_id not in desired_ids:
+                    raise ValueError("activeScheduleId must be included in scheduleIds.")
+
+            if active_schedule_id is not None:
+                if active_schedule_id:
+                    schedule = session.get(ScheduleModel, active_schedule_id)
+                    if schedule is None or schedule.group_id != group_id:
+                        raise ValueError("Active schedule must belong to the group.")
+                    self._set_group_active_sql(session, group_model, active_schedule_id)
+                else:
+                    self._set_group_active_sql(session, group_model, None)
+
+            group_model.updated_at = _now().isoformat()
+            self._set_generated_at(session)
+            session.commit()
+
+            refreshed = session.get(ScheduleGroupModel, group_id)
+            assert refreshed is not None
+            group = self._model_to_group_record(refreshed)
+            schedules = [
+                _model_to_schedule(schedule)
+                for schedule in self._group_schedules_sql(session, group_id)
+            ]
+            return group, schedules
+
+    def delete_group(self, group_id: str) -> bool:
+        with self._session() as session:
+            group_model = session.get(ScheduleGroupModel, group_id)
+            if group_model is None:
+                return False
+            schedules = self._group_schedules_sql(session, group_id)
+            for schedule in schedules:
+                schedule.group_id = None
+                schedule.updated_at = _now().isoformat()
+            session.delete(group_model)
+            self._set_generated_at(session)
+            session.commit()
+            return True
+
+    def set_group_active(
+        self, group_id: str, schedule_id: str
+    ) -> tuple[ScheduleGroupRecord, list[DeviceSchedule]] | None:
+        with self._session() as session:
+            group_model = session.get(ScheduleGroupModel, group_id)
+            if group_model is None:
+                return None
+            schedule = session.get(ScheduleModel, schedule_id)
+            if schedule is None or schedule.group_id != group_id:
+                raise ValueError("Schedule must belong to the group.")
+            self._set_group_active_sql(session, group_model, schedule_id)
+            self._set_generated_at(session)
+            session.commit()
+            refreshed = session.get(ScheduleGroupModel, group_id)
+            assert refreshed is not None
+            group = self._model_to_group_record(refreshed)
+            schedules = [
+                _model_to_schedule(row)
+                for row in self._group_schedules_sql(session, group_id)
+            ]
+            return group, schedules
 
 
 # Repository factory ----------------------------------------------------------

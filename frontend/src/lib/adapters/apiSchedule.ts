@@ -1,14 +1,20 @@
 import { UnifiApiClient } from "@/lib/api/client";
 import {
   mapSchedule,
+  mapScheduleGroupEntry,
+  mapScheduleGroups,
   mapScheduleMetadata,
-  mapScheduleTarget
+  mapScheduleTarget,
 } from "@/lib/api/transformers";
 import type {
+  CreateScheduleGroupInput,
   CreateScheduleInput,
   DeviceSchedule,
   OwnerScheduleSnapshot,
-  ScheduleConfig
+  ScheduleConfig,
+  ScheduleGroup,
+  ScheduleGroupList,
+  UpdateScheduleGroupInput,
 } from "@/lib/domain/schedules";
 import type { SchedulePort } from "@/lib/ports/SchedulePort";
 
@@ -36,10 +42,16 @@ export class ApiScheduleAdapter implements SchedulePort {
     };
   }
 
+  async loadGroups(ownerKey: string): Promise<ScheduleGroupList> {
+    const response = await this.client.getScheduleGroups(ownerKey);
+    return mapScheduleGroups(response);
+  }
+
   async createSchedule(input: CreateScheduleInput): Promise<DeviceSchedule> {
     const payload = {
       scope: input.scope,
       ownerKey: input.ownerKey,
+      groupId: input.groupId,
       label: input.label,
       description: input.description,
       targets: mapScheduleTarget(input.targets),
@@ -80,5 +92,36 @@ export class ApiScheduleAdapter implements SchedulePort {
       created: response.created.map(mapSchedule),
       replacedCount: response.replacedCount
     };
+  }
+
+  async createGroup(input: CreateScheduleGroupInput): Promise<ScheduleGroup> {
+    const apiGroup = await this.client.createScheduleGroup({
+      name: input.name,
+      ownerKey: input.ownerKey,
+      description: input.description,
+      scheduleIds: input.scheduleIds,
+      activeScheduleId: input.activeScheduleId
+    });
+    return mapScheduleGroupEntry(apiGroup);
+  }
+
+  async updateGroup(input: UpdateScheduleGroupInput): Promise<ScheduleGroup> {
+    const { groupId, ...rest } = input;
+    const apiGroup = await this.client.updateScheduleGroup(groupId, {
+      name: rest.name,
+      description: rest.description,
+      scheduleIds: rest.scheduleIds,
+      activeScheduleId: rest.activeScheduleId
+    });
+    return mapScheduleGroupEntry(apiGroup);
+  }
+
+  async deleteGroup(groupId: string): Promise<void> {
+    await this.client.deleteScheduleGroup(groupId);
+  }
+
+  async activateGroup(groupId: string, scheduleId: string): Promise<ScheduleGroup> {
+    const apiGroup = await this.client.activateScheduleGroup(groupId, { scheduleId });
+    return mapScheduleGroupEntry(apiGroup);
   }
 }

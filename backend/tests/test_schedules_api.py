@@ -132,3 +132,55 @@ def test_create_schedule_requires_owner_key():
     payload.pop("ownerKey")
     response = client.post("/api/schedules", json=payload)
     assert response.status_code == 422
+
+
+def test_schedule_group_lifecycle():
+    owner_key = "kade"
+    payload_one = _build_schedule_payload(owner_key)
+    payload_one["label"] = "Temporary Window A"
+    payload_one["window"]["start"] = "2025-12-02T10:00:00Z"
+    payload_one["window"]["end"] = "2025-12-02T12:00:00Z"
+    payload_two = _build_schedule_payload(owner_key)
+    payload_two["label"] = "Temporary Window B"
+    payload_two["window"]["start"] = "2025-12-03T10:00:00Z"
+    payload_two["window"]["end"] = "2025-12-03T12:00:00Z"
+
+    schedule_one = client.post("/api/schedules", json=payload_one).json()
+    schedule_two = client.post("/api/schedules", json=payload_two).json()
+
+    group_create = client.post(
+        "/api/schedule-groups",
+        json={
+            "name": "Kade Study Windows",
+            "ownerKey": owner_key,
+            "description": "Selectable study windows",
+            "scheduleIds": [schedule_one["id"], schedule_two["id"]],
+            "activeScheduleId": schedule_one["id"],
+        },
+    )
+    assert group_create.status_code == 201
+    group_payload = group_create.json()
+    group_id = group_payload["id"]
+    assert group_payload["activeScheduleId"] == schedule_one["id"]
+
+    groups_response = client.get(f"/api/owners/{owner_key}/schedule-groups")
+    assert groups_response.status_code == 200
+    groups_data = groups_response.json()
+    owner_groups = groups_data["ownerGroups"]
+    assert any(group["id"] == group_id for group in owner_groups)
+
+    activate_response = client.post(
+        f"/api/schedule-groups/{group_id}/activate",
+        json={"scheduleId": schedule_two["id"]},
+    )
+    assert activate_response.status_code == 200
+    assert activate_response.json()["activeScheduleId"] == schedule_two["id"]
+
+    delete_response = client.delete(f"/api/schedule-groups/{group_id}")
+    assert delete_response.status_code == 204
+
+    groups_after_delete = client.get(f"/api/owners/{owner_key}/schedule-groups").json()
+    assert all(group["id"] != group_id for group in groups_after_delete["ownerGroups"])
+
+    schedule_after = client.get(f"/api/schedules/{schedule_one['id']}").json()
+    assert schedule_after["groupId"] is None
