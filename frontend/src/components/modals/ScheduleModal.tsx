@@ -1213,9 +1213,14 @@ function GroupCard({
   toggling
 }: GroupCardProps) {
   const schedules = group.schedules ?? [];
+  const isOwnerGroup = scope === "owner";
+  const isHighlighted = isOwnerGroup && group.isActive;
+  const containerClasses = isHighlighted
+    ? "rounded-2xl border border-brand-blue/70 bg-brand-blue/15 p-4 shadow-[0_15px_45px_rgba(14,128,234,0.25)] transition"
+    : "rounded-2xl border border-slate-700/40 bg-slate-900/60 p-4 shadow-inner transition";
 
   return (
-    <div className="rounded-2xl border border-slate-700/40 bg-slate-900/60 p-4 shadow-inner">
+    <div className={containerClasses}>
       <div className="flex flex-wrap items-center gap-2">
         <p className="text-base font-semibold leading-snug text-slate-50 break-words">{group.name}</p>
         {scope === "global" ? (
@@ -1280,11 +1285,7 @@ function GroupCard({
             return (
               <div
                 key={schedule.id}
-                className={`rounded-xl border px-3 py-3 text-xs transition ${
-                  schedule.enabled
-                    ? "border-brand-blue/60 bg-brand-blue/10"
-                    : "border-slate-700/40 bg-slate-900/60"
-                }`}
+                className="rounded-xl border border-slate-700/40 bg-slate-900/60 px-3 py-3 text-xs transition"
               >
                 <div className="flex flex-wrap items-center justify-between gap-2">
                   <div className="min-w-0 flex-1">
@@ -1295,23 +1296,14 @@ function GroupCard({
                       {formatTimestamp(schedule.window.start)} → {formatTimestamp(schedule.window.end)}
                     </p>
                   </div>
-                  <span
-                    className={`rounded-full border px-3 py-1 text-[11px] uppercase tracking-[0.35em] ${
-                      schedule.enabled
-                        ? "border-emerald-400/40 bg-emerald-500/20 text-emerald-200"
-                        : "border-slate-700/60 bg-slate-900/70 text-slate-400"
-                    }`}
-                  >
-                    {schedule.enabled ? "Enabled" : "Disabled"}
-                  </span>
                 </div>
                 <div className="mt-2 grid gap-2 text-[11px] text-slate-400 md:grid-cols-2">
                   <p>
-                    <span className="uppercase tracking-[0.3em] text-slate-500">Start</span>
+                    <span className="uppercase tracking-[0.3em] text-slate-500">Start action</span>
                     <span className="ml-2 capitalize text-slate-200">{schedule.action}</span>
                   </p>
                   <p>
-                    <span className="uppercase tracking-[0.3em] text-slate-500">End</span>
+                    <span className="uppercase tracking-[0.3em] text-slate-500">End action</span>
                     <span className="ml-2 capitalize text-slate-200">
                       {schedule.endAction ?? oppositeAction(schedule.action)}
                     </span>
@@ -1576,64 +1568,64 @@ function EventList({
               key={schedule.id}
               className="rounded-2xl border border-slate-700/40 bg-slate-900/50 p-4 shadow-inner transition hover:border-brand-blue/50 hover:bg-slate-900/70"
             >
-              <div className="flex flex-wrap items-start justify-between gap-3">
-                <div className="min-w-0 flex-1">
-                  <p className="text-sm font-semibold text-slate-100">{schedule.label}</p>
-                  {schedule.description ? (
-                    <p className="text-xs text-slate-400">{schedule.description}</p>
-                  ) : null}
-                </div>
-                <div className="flex flex-wrap items-center gap-2 text-xs text-slate-400">
-                  <span className="rounded-full border border-slate-700/60 px-3 py-1 text-slate-300">
-                    Starts · {formatTimestamp(schedule.window.start)}
-                  </span>
-                  <span className="rounded-full border border-slate-700/60 px-3 py-1 text-slate-300">
-                    Ends · {formatTimestamp(schedule.window.end)}
-                  </span>
-                </div>
-                <div className="flex items-center gap-2">
-                  {showCopyButton ? (
+                <div className="flex flex-wrap items-start justify-between gap-3">
+                  <div className="min-w-0 flex-1">
+                    <p className="text-sm font-semibold text-slate-100">{schedule.label}</p>
+                    {schedule.description ? (
+                      <p className="text-xs text-slate-400">{schedule.description}</p>
+                    ) : null}
+                  </div>
+                  <div className="flex flex-wrap items-center gap-2 text-xs text-slate-400">
+                    <span className="rounded-full border border-slate-700/60 px-3 py-1 text-slate-300">
+                      Starts · {formatTimestamp(schedule.window.start)}
+                    </span>
+                    <span className="rounded-full border border-slate-700/60 px-3 py-1 text-slate-300">
+                      Ends · {formatTimestamp(schedule.window.end)}
+                    </span>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    {showCopyButton ? (
+                      <Button
+                        variant="secondary"
+                        size="sm"
+                        className="text-xs"
+                        disabled={copyDisabled || !onCopy}
+                        onClick={() => onCopy?.(schedule)}
+                      >
+                        Copy event
+                      </Button>
+                    ) : null}
                     <Button
-                      variant="secondary"
+                      variant="ghost"
                       size="sm"
-                      className="text-xs"
-                      disabled={copyDisabled || !onCopy}
-                      onClick={() => onCopy?.(schedule)}
+                      className="text-xs text-status-locked hover:text-status-locked"
+                      disabled={deletingIds.has(schedule.id)}
+                      onClick={() => onDelete(schedule)}
                     >
-                      Copy event
+                      {deletingIds.has(schedule.id) ? "Removing…" : "Delete"}
                     </Button>
-                  ) : null}
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    className="text-xs text-status-locked hover:text-status-locked"
-                    disabled={deletingIds.has(schedule.id)}
-                    onClick={() => onDelete(schedule)}
-                  >
-                    {deletingIds.has(schedule.id) ? "Removing…" : "Delete"}
-                  </Button>
+                  </div>
                 </div>
-              </div>
-              <div className="mt-3 grid gap-3 text-xs text-slate-400 md:grid-cols-2">
-                <div>
-                  <p className="text-[11px] uppercase tracking-[0.3em] text-slate-500">Start action</p>
-                  <p className="mt-1 text-slate-200 capitalize">{schedule.action}</p>
+                <div className="mt-3 grid gap-3 text-xs text-slate-400 md:grid-cols-2">
+                  <div>
+                    <p className="text-[11px] uppercase tracking-[0.3em] text-slate-500">Start action</p>
+                    <p className="mt-1 text-slate-200 capitalize">{schedule.action}</p>
+                  </div>
+                  <div>
+                    <p className="text-[11px] uppercase tracking-[0.3em] text-slate-500">End action</p>
+                    <p className="mt-1 text-slate-200 capitalize">
+                      {schedule.endAction ?? oppositeAction(schedule.action)}
+                    </p>
+                  </div>
+                  <div>
+                    <p className="text-[11px] uppercase tracking-[0.3em] text-slate-500">Recurrence</p>
+                    <p className="mt-1 text-slate-200 capitalize">{describeRecurrence(schedule)}</p>
+                  </div>
+                  <div>
+                    <p className="text-[11px] uppercase tracking-[0.3em] text-slate-500">Status</p>
+                    <p className="mt-1 text-slate-200">{schedule.enabled ? "Enabled" : "Disabled"}</p>
+                  </div>
                 </div>
-                <div>
-                  <p className="text-[11px] uppercase tracking-[0.3em] text-slate-500">End action</p>
-                  <p className="mt-1 text-slate-200 capitalize">
-                    {schedule.endAction ?? oppositeAction(schedule.action)}
-                  </p>
-                </div>
-                <div>
-                  <p className="text-[11px] uppercase tracking-[0.3em] text-slate-500">Recurrence</p>
-                  <p className="mt-1 text-slate-200 capitalize">{describeRecurrence(schedule)}</p>
-                </div>
-                <div>
-                  <p className="text-[11px] uppercase tracking-[0.3em] text-slate-500">Status</p>
-                  <p className="mt-1 text-slate-200">{schedule.enabled ? "Enabled" : "Disabled"}</p>
-                </div>
-              </div>
             </li>
           ))}
         </ul>
