@@ -247,7 +247,7 @@ class DeviceSchedule(CamelModel):
     id: str
     scope: Literal["owner", "global"]
     owner_key: str | None = Field(default=None, alias="ownerKey")
-    group_id: str | None = Field(default=None, alias="groupId")
+    group_ids: list[str] = Field(default_factory=list, alias="groupIds")
     label: str
     description: str | None = None
     targets: ScheduleTarget
@@ -274,7 +274,7 @@ class ScheduleConfig(CamelModel):
 class ScheduleCreateRequest(CamelModel):
     scope: Literal["owner", "global"]
     owner_key: str | None = Field(default=None, alias="ownerKey")
-    group_id: str | None = Field(default=None, alias="groupId")
+    group_ids: list[str] | None = Field(default=None, alias="groupIds")
     label: str
     description: str | None = None
     targets: ScheduleTarget
@@ -289,7 +289,7 @@ class ScheduleCreateRequest(CamelModel):
 class ScheduleUpdateRequest(CamelModel):
     scope: Literal["owner", "global"] | None = None
     owner_key: str | None = Field(default=None, alias="ownerKey")
-    group_id: str | None = Field(default=None, alias="groupId")
+    group_ids: list[str] | None = Field(default=None, alias="groupIds")
     label: str | None = None
     description: str | None = None
     targets: ScheduleTarget | None = None
@@ -338,7 +338,7 @@ class ScheduleGroup(CamelModel):
     name: str
     description: str | None = None
     owner_key: str | None = Field(default=None, alias="ownerKey")
-    active_schedule_id: str | None = Field(default=None, alias="activeScheduleId")
+    is_active: bool = Field(default=False, alias="isActive")
     created_at: datetime = Field(alias="createdAt")
     updated_at: datetime = Field(alias="updatedAt")
     schedules: list[DeviceSchedule] = Field(default_factory=list)
@@ -349,14 +349,14 @@ class ScheduleGroupCreateRequest(CamelModel):
     description: str | None = None
     owner_key: str | None = Field(default=None, alias="ownerKey")
     schedule_ids: list[str] = Field(default_factory=list, alias="scheduleIds")
-    active_schedule_id: str | None = Field(default=None, alias="activeScheduleId")
+    is_active: bool | None = Field(default=None, alias="isActive")
 
 
 class ScheduleGroupUpdateRequest(CamelModel):
     name: str | None = None
     description: str | None = None
     schedule_ids: list[str] | None = Field(default=None, alias="scheduleIds")
-    active_schedule_id: str | None = Field(default=None, alias="activeScheduleId")
+    is_active: bool | None = Field(default=None, alias="isActive")
 
 
 class ScheduleGroupListResponse(CamelModel):
@@ -365,7 +365,7 @@ class ScheduleGroupListResponse(CamelModel):
 
 
 class ScheduleGroupActivateRequest(CamelModel):
-    schedule_id: str = Field(alias="scheduleId")
+    active: bool = Field(alias="active")
 
 
 __all__ = [

@@ -69,8 +69,27 @@ class ScheduleGroupModel(Base):
     name: Mapped[str] = mapped_column(String(255), nullable=False)
     description: Mapped[str | None] = mapped_column(Text, nullable=True)
     active_schedule_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     created_at: Mapped[str] = mapped_column(String(64), nullable=False)
     updated_at: Mapped[str] = mapped_column(String(64), nullable=False)
+
+
+class ScheduleGroupMembershipModel(Base):
+    """Association table mapping schedules to groups (many-to-many)."""
+
+    __tablename__ = "schedule_group_memberships"
+
+    group_id: Mapped[str] = mapped_column(
+        String(64),
+        ForeignKey("schedule_groups.id", ondelete="CASCADE"),
+        primary_key=True,
+    )
+    schedule_id: Mapped[str] = mapped_column(
+        String(64),
+        ForeignKey("schedules.id", ondelete="CASCADE"),
+        primary_key=True,
+    )
+    created_at: Mapped[str] = mapped_column(String(64), nullable=False)
 
 
 class ScheduleMetadataModel(Base):

@@ -12,6 +12,7 @@ DEFAULT_SCHEDULE_CONFIG: dict[str, object] = {
         {
             "id": "global-school-night",
             "scope": "global",
+            "groupIds": [],
             "label": "School Night Quiet Hours",
             "description": "Lock all streaming devices across the network after 9 PM on school nights.",
             "targets": {
@@ -45,6 +46,7 @@ DEFAULT_SCHEDULE_CONFIG: dict[str, object] = {
             "id": "kade-weekend-gaming",
             "scope": "owner",
             "ownerKey": "kade",
+            "groupIds": [],
             "label": "Weekend Gaming Window",
             "description": "Unlock Kade’s Xbox every Saturday/Sunday afternoon.",
             "targets": {
@@ -72,6 +74,7 @@ DEFAULT_SCHEDULE_CONFIG: dict[str, object] = {
             "id": "jayce-exam-week",
             "scope": "owner",
             "ownerKey": "jayce",
+            "groupIds": [],
             "label": "Exam Week Lock",
             "description": "Lock Jayce’s devices during final exams.",
             "targets": {
@@ -96,6 +99,7 @@ DEFAULT_SCHEDULE_CONFIG: dict[str, object] = {
             "id": "house-movie-night",
             "scope": "owner",
             "ownerKey": "house",
+            "groupIds": [],
             "label": "Family Movie Night",
             "description": "Unlock living room Roku Friday nights.",
             "targets": {
@@ -128,6 +132,7 @@ DEFAULT_SCHEDULE_CONFIG: dict[str, object] = {
         {
             "id": "nightly-network-reset",
             "scope": "global",
+            "groupIds": [],
             "label": "Nightly Network Reset",
             "description": "Lock all devices for 10 minutes every night to recycle network sessions.",
             "targets": {

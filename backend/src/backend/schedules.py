@@ -7,15 +7,21 @@ import uuid
 from copy import deepcopy
 from dataclasses import dataclass
 from datetime import datetime, timezone
+from collections import defaultdict
 from functools import lru_cache
 from typing import Iterable, Literal, Protocol
 
-from sqlalchemy import select
+from sqlalchemy import delete, select
 from sqlalchemy.exc import NoResultFound
 from sqlalchemy.orm import Session
 
 from .database import get_engine, get_session_factory, is_database_configured
-from .db_models import ScheduleGroupModel, ScheduleMetadataModel, ScheduleModel
+from .db_models import (
+    ScheduleGroupMembershipModel,
+    ScheduleGroupModel,
+    ScheduleMetadataModel,
+    ScheduleModel,
+)
 from .defaults import DEFAULT_SCHEDULE_CONFIG
 from .schemas import (
     DeviceSchedule,
@@ -40,7 +46,7 @@ def _schedule_to_model(schedule: DeviceSchedule) -> ScheduleModel:
         id=schedule.id,
         scope=schedule.scope,
         owner_key=schedule.owner_key,
-        group_id=schedule.group_id,
+        group_id=schedule.group_ids[0] if schedule.group_ids else None,
         label=schedule.label,
         description=schedule.description,
         targets_json=json.dumps(
@@ -65,11 +71,17 @@ def _schedule_to_model(schedule: DeviceSchedule) -> ScheduleModel:
     )
 
 
-def _model_to_schedule(model: ScheduleModel) -> DeviceSchedule:
+def _model_to_schedule(model: ScheduleModel, group_ids: list[str] | None = None) -> DeviceSchedule:
+    resolved_group_ids: list[str] = []
+    if group_ids is not None:
+        resolved_group_ids = group_ids
+    elif model.group_id:
+        resolved_group_ids = [model.group_id]
     return DeviceSchedule(
         id=model.id,
         scope=model.scope,
         owner_key=model.owner_key,
+        group_ids=resolved_group_ids,
         label=model.label,
         description=model.description,
         targets=ScheduleTarget.model_validate_json(model.targets_json),
@@ -96,7 +108,7 @@ def _clone_for_owner(schedule: DeviceSchedule, owner_key: str) -> DeviceSchedule
     cloned.id = str(uuid.uuid4())
     cloned.scope = "owner"
     cloned.owner_key = owner_key.lower()
-    cloned.group_id = None
+    cloned.group_ids = []
     cloned.enabled = True
     timestamp = _now()
     cloned.created_at = timestamp
@@ -110,7 +122,7 @@ class ScheduleGroupRecord:
     name: str
     owner_key: str | None
     description: str | None
-    active_schedule_id: str | None
+    is_active: bool
     created_at: datetime
     updated_at: datetime
 
@@ -228,7 +240,7 @@ class ScheduleRepository(Protocol):
         owner_key: str | None,
         description: str | None,
         schedule_ids: list[str],
-        active_schedule_id: str | None,
+        is_active: bool,
     ) -> tuple[ScheduleGroupRecord, list[DeviceSchedule]]:
         ...
 
@@ -239,11 +251,18 @@ class ScheduleRepository(Protocol):
         name: str | None = None,
         description: str | None = None,
         schedule_ids: list[str] | None = None,
-        active_schedule_id: str | None = None,
+        is_active: bool | None = None,
     ) -> tuple[ScheduleGroupRecord, list[DeviceSchedule]] | None:
         ...
 
     def delete_group(self, group_id: str) -> bool:
+        ...
+
+    def set_group_active(
+        self,
+        group_id: str,
+        active: bool,
+    ) -> tuple[ScheduleGroupRecord, list[DeviceSchedule]] | None:
         ...
 
     def set_group_active(self, group_id: str, schedule_id: str) -> tuple[ScheduleGroupRecord, list[DeviceSchedule]] | None:

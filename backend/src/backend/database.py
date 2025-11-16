@@ -58,7 +58,12 @@ def _ensure_sqlite_directory(url: str) -> None:
 
 def _prepare_schema(engine: Engine) -> None:
     """Ensure tables exist and apply simple migrations for legacy databases."""
-    from .db_models import Base, ScheduleGroupModel  # Local import to avoid circular deps
+    from .db_models import (
+        Base,
+        ScheduleGroupMembershipModel,
+        ScheduleGroupModel,
+        ScheduleModel,
+    )  # Local import to avoid circular deps
 
     Base.metadata.create_all(engine)
     inspector = inspect(engine)
@@ -73,6 +78,47 @@ def _prepare_schema(engine: Engine) -> None:
 
     if "schedule_groups" not in inspector.get_table_names():
         ScheduleGroupModel.__table__.create(bind=engine, checkfirst=True)
+    else:
+        columns = {column["name"] for column in inspector.get_columns("schedule_groups")}
+        if "is_active" not in columns:
+            with engine.begin() as connection:
+                connection.execute(
+                    text(
+                        "ALTER TABLE schedule_groups ADD COLUMN is_active BOOLEAN NOT NULL DEFAULT 0"
+                    )
+                )
+
+    if "schedule_group_memberships" not in inspector.get_table_names():
+        ScheduleGroupMembershipModel.__table__.create(bind=engine, checkfirst=True)
+
+        # Migrate legacy schedules.group_id values into membership rows.
+        with engine.begin() as connection:
+            rows = connection.execute(
+                text(
+                    "SELECT id AS schedule_id, group_id FROM schedules WHERE group_id IS NOT NULL"
+                )
+            ).fetchall()
+            now = _now_iso()
+            for row in rows:
+                connection.execute(
+                    text(
+                        """
+                        INSERT OR IGNORE INTO schedule_group_memberships (group_id, schedule_id, created_at)
+                        VALUES (:group_id, :schedule_id, :created_at)
+                        """
+                    ),
+                    {
+                        "group_id": row["group_id"],
+                        "schedule_id": row["schedule_id"],
+                        "created_at": now,
+                    },
+                )
+
+
+def _now_iso() -> str:
+    from datetime import datetime, timezone
+
+    return datetime.now(timezone.utc).isoformat()
 
 
 def get_engine() -> Engine | None:
