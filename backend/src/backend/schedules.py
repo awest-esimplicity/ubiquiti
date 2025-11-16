@@ -295,6 +295,21 @@ class InMemoryScheduleRepository(ScheduleRepository):
             schedule.updated_at = _now()
         group.active_schedule_id = schedule_id
         group.updated_at = _now()
+        if schedule_id:
+            self._deactivate_other_groups(group)
+
+    def _deactivate_other_groups(self, active_group: ScheduleGroupRecord) -> None:
+        for group in self._groups.values():
+            if group.id == active_group.id:
+                continue
+            same_owner = (
+                (active_group.owner_key is None and group.owner_key is None)
+                or (active_group.owner_key is not None and group.owner_key == active_group.owner_key)
+            )
+            if not same_owner:
+                continue
+            if group.active_schedule_id:
+                self._set_group_active(group, None)
 
     def _remove_schedule_from_group(self, schedule: DeviceSchedule) -> None:
         if not schedule.group_id:
@@ -750,6 +765,24 @@ class SqlScheduleRepository(ScheduleRepository):
             row.updated_at = now
         group_model.active_schedule_id = schedule_id
         group_model.updated_at = now
+        if schedule_id:
+            self._deactivate_other_groups_sql(session, group_model)
+
+    def _deactivate_other_groups_sql(
+        self,
+        session: Session,
+        active_group: ScheduleGroupModel,
+    ) -> None:
+        owner_key = active_group.owner_key
+        stmt = select(ScheduleGroupModel).where(ScheduleGroupModel.id != active_group.id)
+        if owner_key is None:
+            stmt = stmt.where(ScheduleGroupModel.owner_key.is_(None))
+        else:
+            stmt = stmt.where(ScheduleGroupModel.owner_key == owner_key)
+        other_groups = session.execute(stmt).scalars().all()
+        for group in other_groups:
+            if group.active_schedule_id:
+                self._set_group_active_sql(session, group, None)
 
     def _remove_schedule_from_group_sql(
         self,
