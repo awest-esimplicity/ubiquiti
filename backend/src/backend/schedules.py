@@ -796,12 +796,10 @@ class SqlScheduleRepository(ScheduleRepository):
         schedule.updated_at = _now().isoformat()
 
     def _enforce_activation_sql(self, session: Session) -> None:
-        active_group_ids = [
-            row.id
-            for row in session.execute(
-                select(ScheduleGroupModel.id).where(ScheduleGroupModel.is_active.is_(True))
-            ).scalars()
-        ]
+        stmt = select(ScheduleGroupModel.id).where(
+            ScheduleGroupModel.is_active.is_(True)
+        )
+        active_group_ids = session.execute(stmt).scalars().all()
         active_schedule_ids: set[str] = set()
         if active_group_ids:
             rows = session.execute(
